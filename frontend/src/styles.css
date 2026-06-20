@@ -1,0 +1,23 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, sans-serif;
+  background: #0d1117;
+  color: #e6edf3;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+.mono { font-family: 'JetBrains Mono', monospace; }
+button {
+  background: #161b22;
+  color: #e6edf3;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+input, select {
+  background: #0d1117;
+  color: #e6edf3;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 6px;
+}

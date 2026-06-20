@@ -1,0 +1,20 @@
+name: Build & Push Docker Image
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -t genomics-tool .
+      - name: Smoke test
+        run: |
+          docker run -d -p 8000:8000 --name gt genomics-tool
+          sleep 5
+          curl -f http://localhost:8000/api/health
+          docker stop gt

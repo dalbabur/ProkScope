@@ -1,0 +1,17 @@
+{
+  "name": "Genomics Tool",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "20" }
+  },
+  "postCreateCommand": "cd backend && pip install -r requirements.txt && cd ../frontend && npm ci",
+  "forwardPorts": [8000, 5173],
+  "portsAttributes": {
+    "8000": { "label": "API + App", "onAutoForward": "openBrowser" },
+    "5173": { "label": "Vite dev server", "onAutoForward": "silent" }
+  },
+  "remoteEnv": {
+    "GOOGLE_CLIENT_ID": "${localEnv:GOOGLE_CLIENT_ID}",
+    "GOOGLE_CLIENT_SECRET": "${localEnv:GOOGLE_CLIENT_SECRET}"
+  }
+}

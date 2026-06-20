@@ -22,7 +22,10 @@ export function SequenceUploader() {
   const [selectedQueryIds, setSelectedQueryIds] = useState<string[]>([]);
 
   const handleFiles = async (files: FileList | null) => {
-    if (!files) return;
+    if (!files || files.length === 0) {
+      setError('Choose at least one file to upload.');
+      return;
+    }
     setIsLoading(true);
     setError(null);
     try {
@@ -30,10 +33,10 @@ export function SequenceUploader() {
         const lower = file.name.toLowerCase();
         if (annotationExt.some((ext) => lower.endsWith(ext))) {
           const loaded = await uploadAnnotationFile(file);
-          setAnnotations([...annotations, ...loaded]);
+          setAnnotations((prev) => [...prev, ...loaded]);
         } else {
           const loaded = await uploadSequenceFile(file);
-          setSequences([...sequences, ...loaded]);
+          setSequences((prev) => [...prev, ...loaded]);
         }
       }
     } catch (error) {
@@ -46,15 +49,25 @@ export function SequenceUploader() {
   const compare = async () => {
     const reference = sequences.find((item) => item.id === referenceId);
     const queries = sequences.filter((item) => selectedQueryIds.includes(item.id) && item.id !== referenceId);
-    if (!reference || queries.length === 0) return;
+    if (!reference) {
+      setError('Select one reference sequence.');
+      return;
+    }
+    if (queries.length === 0) {
+      setError('Select at least one query sequence.');
+      return;
+    }
 
     setIsLoading(true);
+    setError(null);
     try {
       const result =
         queries.length === 1
           ? await comparePairwise(reference, queries[0], annotations)
           : await compareBatch(reference, queries, annotations);
       setComparisonResult(result);
+    } catch (error) {
+      setError((error as Error).message);
     } finally {
       setIsLoading(false);
     }

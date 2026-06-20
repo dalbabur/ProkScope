@@ -10,9 +10,9 @@ type State = {
   isLoading: boolean;
   error: string | null;
   hiddenFeatureTypes: string[];
-  setSequences: (sequences: SequenceRecord[]) => void;
+  setSequences: (sequences: SequenceRecord[] | ((prev: SequenceRecord[]) => SequenceRecord[])) => void;
   setReferenceId: (id: string | null) => void;
-  setAnnotations: (annotations: Annotation[]) => void;
+  setAnnotations: (annotations: Annotation[] | ((prev: Annotation[]) => Annotation[])) => void;
   setComparisonResult: (result: ComparisonResult | BatchComparisonResult | null) => void;
   setDriveSessionToken: (token: string | null) => void;
   setIsLoading: (value: boolean) => void;
@@ -29,9 +29,15 @@ export const useStore = create<State>((set) => ({
   isLoading: false,
   error: null,
   hiddenFeatureTypes: [],
-  setSequences: (sequences) => set({ sequences }),
+  setSequences: (sequences) =>
+    set((state) => ({
+      sequences: typeof sequences === 'function' ? sequences(state.sequences) : sequences
+    })),
   setReferenceId: (referenceId) => set({ referenceId }),
-  setAnnotations: (annotations) => set({ annotations }),
+  setAnnotations: (annotations) =>
+    set((state) => ({
+      annotations: typeof annotations === 'function' ? annotations(state.annotations) : annotations
+    })),
   setComparisonResult: (comparisonResult) => set({ comparisonResult }),
   setDriveSessionToken: (driveSessionToken) => set({ driveSessionToken }),
   setIsLoading: (isLoading) => set({ isLoading }),

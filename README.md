@@ -16,7 +16,7 @@ docker compose up --build
 1. Open repo in Codespaces
 2. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET as Codespaces secrets
 3. In two terminals:
-   Terminal 1: cd backend && uvicorn main:app --reload --port 8000
+   Terminal 1: python -m uvicorn backend.main:app --reload --port 8000
    Terminal 2: cd frontend && npm run dev
 4. Codespaces will auto-forward port 8000 and open the browser
 

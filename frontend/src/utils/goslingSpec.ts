@@ -17,6 +17,14 @@ export function buildGoslingSpec(
   comparisonResult: ComparisonResult | BatchComparisonResult | null
 ) {
   const reference = sequences[0];
+  if (!reference) {
+    return {
+      title: 'Genome Viewer',
+      arrangement: 'vertical',
+      views: []
+    };
+  }
+
   const refLength = reference?.length ?? 0;
   const allMutations = comparisonResult
     ? isBatchResult(comparisonResult)

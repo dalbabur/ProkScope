@@ -23,6 +23,13 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/")
+def root() -> dict[str, str]:
+    return {
+        "message": "Backend is running. Use /docs or start the Vite frontend on port 5173.",
+    }
+
+
 app.include_router(sequences.router, prefix="/api/sequences", tags=["sequences"])
 app.include_router(annotations.router, prefix="/api/annotations", tags=["annotations"])
 app.include_router(comparison.router, prefix="/api/comparison", tags=["comparison"])

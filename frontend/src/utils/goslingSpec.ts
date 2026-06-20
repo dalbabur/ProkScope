@@ -35,6 +35,10 @@ export function buildGoslingSpec(
     ? reference.sequence.split('').map((base, index) => ({ position: index + 1, base }))
     : [];
 
+  // Split annotations: feature DB hits (have a color field set) vs. standard annotations
+  const featureDbHits = annotations.filter((a) => a.color != null);
+  const standardAnnotations = annotations.filter((a) => a.color == null);
+
   const tracks: any[] = [
     {
       linkingId: 'genome-axis',
@@ -49,7 +53,7 @@ export function buildGoslingSpec(
     },
     {
       linkingId: 'genome-axis',
-      data: { values: annotations, type: 'json' },
+      data: { values: standardAnnotations, type: 'json' },
       x: { field: 'start', type: 'genomic', axis: 'none', domain: { chromosome: 'chr', interval: [0, refLength] } },
       xe: { field: 'end', type: 'genomic' },
       y: { field: 'feature_type', type: 'nominal' },
@@ -79,6 +83,29 @@ export function buildGoslingSpec(
       height: 40
     }
   ];
+
+  if (featureDbHits.length > 0) {
+    tracks.push({
+      linkingId: 'genome-axis',
+      title: 'Feature DB Matches',
+      data: { values: featureDbHits, type: 'json' },
+      x: { field: 'start', type: 'genomic', axis: 'none', domain: { chromosome: 'chr', interval: [0, refLength] } },
+      xe: { field: 'end', type: 'genomic' },
+      row: { field: 'feature_type', type: 'nominal' },
+      mark: 'rect',
+      color: { field: 'color', type: 'nominal' },
+      tooltip: [
+        { field: 'name', type: 'nominal', alt: 'Name' },
+        { field: 'feature_type', type: 'nominal', alt: 'Type' },
+        { field: 'source', type: 'nominal', alt: 'Source Plasmid' },
+        { field: 'start', type: 'quantitative', alt: 'Start' },
+        { field: 'end', type: 'quantitative', alt: 'End' },
+        { field: 'strand', type: 'nominal', alt: 'Strand' }
+      ],
+      width: 900,
+      height: 50
+    });
+  }
 
   if (comparisonResult && isBatchResult(comparisonResult)) {
     comparisonResult.results.forEach((item) => {

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { AnnotationTrack } from './components/AnnotationTrack';
 import { ComparisonView } from './components/ComparisonView';
 import { DriveFilePicker } from './components/DriveFilePicker';
+import { FeatureLibrary } from './components/FeatureLibrary';
 import { GenomeViewer } from './components/GenomeViewer';
 import { MutationTable } from './components/MutationTable';
 import { SequenceUploader } from './components/SequenceUploader';
@@ -39,6 +40,7 @@ export default function App() {
         <DriveFilePicker />
         <h3>Upload</h3>
         <SequenceUploader />
+        <FeatureLibrary />
       </aside>
       <main style={{ padding: 12, display: 'grid', gridTemplateRows: '60% 40%', gap: 12 }}>
         <section>

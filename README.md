@@ -39,6 +39,35 @@ docker compose up --build
 6. Inspect mutations in the genome viewer, mutation table, and alignment view
 7. Export mutation table as CSV
 
+## Feature database
+
+prokscope can search any loaded genome for sequences from your parts library.
+
+### Build the database
+Put all your Benchling `.gb` exports in one folder, then run:
+
+```bash
+python build_feature_db.py --input ./plasmids --output feature_db.json
+```
+
+Re-run whenever you add new plasmid files. The script deduplicates features
+across files automatically.
+
+### Use in prokscope
+1. Load a reference genome (FASTA or GenBank)
+2. Open the **Feature Library** panel in the sidebar
+3. Search or filter for features of interest
+4. Select features and click **Find in Genome**
+5. Hits appear as a colored track using the original Benchling colors
+
+You can also upload a `feature_db.json` directly in the UI without restarting
+the server.
+
+### Environment variable
+```
+FEATURE_DB_PATH=./feature_db.json   # default; override if stored elsewhere
+```
+
 ## Supported formats
 
 | Format | Sequences | Annotations |

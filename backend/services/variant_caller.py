@@ -34,14 +34,59 @@ def _clear_done(work_dir: Path, step: str) -> None:
 
 
 def _run(cmd: list[str], step: str) -> subprocess.CompletedProcess:
-    """Run a subprocess; raise RuntimeError with stderr on non-zero exit."""
+    """Run a subprocess; raise RuntimeError with full output on non-zero exit."""
     logger.info("Step [%s]: %s", step, " ".join(cmd))
     proc = subprocess.run(cmd, capture_output=True)
+    stdout = proc.stdout.decode(errors="replace").strip()
+    stderr = proc.stderr.decode(errors="replace").strip()
+    if stdout:
+        logger.info("Step [%s] stdout:\n%s", step, stdout)
+    if stderr:
+        logger.info("Step [%s] stderr:\n%s", step, stderr)
     if proc.returncode != 0:
-        stderr = proc.stderr.decode(errors="replace")
-        logger.error("Step [%s] failed (exit %d):\n%s", step, proc.returncode, stderr)
-        raise RuntimeError(f"[{step}] failed (exit {proc.returncode}):\n{stderr}")
+        combined = f"STDOUT:\n{stdout}\n\nSTDERR:\n{stderr}".strip()
+        logger.error("Step [%s] failed (exit %d)", step, proc.returncode)
+        raise RuntimeError(f"[{step}] failed (exit {proc.returncode}):\n{combined}")
     return proc
+
+
+def _run_shell(cmd: list[str], step: str, work_dir: Path) -> None:
+    """Run a command via the shell, streaming stdout+stderr line-by-line to the log.
+
+    Unlike _run(), this does NOT use capture_output — output is streamed in
+    real time so long-running tools like medaka_consensus don't appear silent,
+    and so the full output is visible even if the process is killed mid-run.
+    A log file is also written to work_dir for post-mortem inspection.
+    """
+    import select
+    import threading
+
+    log_path = work_dir / f"{step}.log"
+    logger.info("Step [%s]: %s  (log: %s)", step, " ".join(cmd), log_path)
+
+    with open(log_path, "w") as log_fh:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # merge stderr into stdout
+            text=True,
+            bufsize=1,
+        )
+
+        for line in proc.stdout:
+            line = line.rstrip()
+            logger.info("[%s] %s", step, line)
+            log_fh.write(line + "\n")
+            log_fh.flush()
+
+        proc.wait()
+
+    if proc.returncode != 0:
+        log_contents = log_path.read_text(errors="replace")
+        raise RuntimeError(
+            f"[{step}] failed (exit {proc.returncode}). "
+            f"Full log at {log_path}:\n{log_contents}"
+        )
 
 
 def _which_required(tool: str) -> str:
@@ -142,6 +187,7 @@ def assemble_consensus_medaka(
     reference_path: str,
     output_dir: str,
     medaka_model: str = "r941_min_high_g360",
+    batch_size: int = 10,
 ) -> tuple[str, str]:
     """
     Generate a polished consensus FASTA from raw ONT reads using Medaka 2.x.
@@ -189,37 +235,70 @@ def assemble_consensus_medaka(
     if _is_done(work_dir, "medaka_consensus") and Path(consensus_fasta).exists():
         logger.info("Checkpoint: consensus.fasta exists — skipping medaka_consensus")
     else:
-        medaka = _which_required("medaka_consensus")
+        # Locate medaka_consensus shell script, or fall back to the Python entry point.
+        # pip install medaka always installs `medaka` (Python); the shell script
+        # `medaka_consensus` may or may not be on PATH depending on install method.
+        medaka_bin = shutil.which("medaka_consensus")
+        if medaka_bin is None:
+            medaka_py = shutil.which("medaka")
+            if medaka_py is None:
+                raise RuntimeError(
+                    "Neither 'medaka_consensus' nor 'medaka' found in PATH. "
+                    "Run: pip install medaka"
+                )
+            # Use the Python entry point: medaka consensus (subcommand)
+            use_python_entrypoint = True
+            logger.info("medaka_consensus not found; using 'medaka consensus' Python entry point")
+        else:
+            use_python_entrypoint = False
 
         # Remove any partial medaka output directory from a previous failed run
         if medaka_out_dir.exists():
             shutil.rmtree(medaka_out_dir)
         _clear_done(work_dir, "medaka_consensus")
 
-        cmd = [
-            medaka,
-            "-i", fastq_path,
-            "-d", reference_path,
-            "-o", str(medaka_out_dir),
-            "-t", "2",
-            "--bacteria",
-        ]
-        # Only pass -m if a model was specified; omitting it lets medaka auto-detect.
-        if medaka_model and medaka_model.strip():
-            cmd += ["-m", medaka_model]
+        if use_python_entrypoint:
+            # medaka consensus subcommand takes a BAM (not reads directly).
+            # It requires the BAM from Step A.
+            medaka_py = shutil.which("medaka")
+            hdf_file = str(work_dir / "consensus.hdf")
+            cmd_inference = [medaka_py, "inference", sorted_bam, hdf_file,
+                             "--threads", "2", "--quiet"]
+            if medaka_model and medaka_model.strip():
+                cmd_inference += ["--model", medaka_model]
+            _run(cmd_inference, "medaka-inference")
 
-        _run(cmd, "medaka_consensus")
+            cmd_stitch = [medaka_py, "stitch", hdf_file, reference_path, consensus_fasta]
+            _run(cmd_stitch, "medaka-stitch")
+        else:
+            # Shell script: feeds reads + reference directly (Medaka 2.x recommended)
+            cmd = [
+                medaka_bin,
+                "-i", fastq_path,
+                "-d", reference_path,
+                "-o", str(medaka_out_dir),
+                "-t", "2",
+                "-b", str(batch_size),  # lower = less RAM; tune down if OOM (default 100 is too large for CPU)
+            ]
+            if medaka_model and medaka_model.strip():
+                cmd += ["-m", medaka_model]
 
-        # medaka_consensus writes consensus.fasta inside the output directory
-        candidate = medaka_out_dir / "consensus.fasta"
-        if not candidate.exists():
-            contents = list(medaka_out_dir.iterdir()) if medaka_out_dir.exists() else []
-            raise RuntimeError(
-                f"medaka_consensus finished but consensus.fasta not found in "
-                f"{medaka_out_dir}. Directory contents: {[p.name for p in contents]}"
-            )
+            # Run medaka_consensus via the shell so its internal subcommands
+            # and full output (stdout + stderr interleaved) are visible in logs.
+            _run_shell(cmd, "medaka_consensus", work_dir)
 
-        shutil.copy2(str(candidate), consensus_fasta)
+            candidate = medaka_out_dir / "consensus.fasta"
+            if not candidate.exists():
+                contents = list(medaka_out_dir.iterdir()) if medaka_out_dir.exists() else []
+                raise RuntimeError(
+                    f"medaka_consensus finished but consensus.fasta not found in "
+                    f"{medaka_out_dir}. Directory contents: {[p.name for p in contents]}"
+                )
+            shutil.copy2(str(candidate), consensus_fasta)
+
+        if not Path(consensus_fasta).exists():
+            raise RuntimeError(f"Medaka completed but consensus.fasta not found at {consensus_fasta}")
+
         _mark_done(work_dir, "medaka_consensus")
 
     return (consensus_fasta, sorted_bam)

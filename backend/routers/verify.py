@@ -175,23 +175,24 @@ def _run_assemble_consensus_job(
     fastq_path: str,
     output_dir: str,
     medaka_model: str,
+    batch_size: int = 10,
 ) -> None:
     """Background worker for Mode 2: Assemble consensus from ONT reads."""
     _jobs[job_id] = JobStatus(job_id=job_id, status="running")
-    temp_work_dir = None
 
     try:
-        # Create temporary working directory
-        temp_work_dir = os.path.join(tempfile.gettempdir(), f"prokscope_{job_id}")
-        os.makedirs(temp_work_dir, exist_ok=True)
+        # Work directly in output_dir so logs, BAM, and consensus persist even on failure.
+        # This also makes the workflow resumable: checkpoints survive between runs.
+        os.makedirs(output_dir, exist_ok=True)
 
         # Run medaka consensus assembly
         logger.info("Starting medaka consensus assembly for job %s", job_id)
         consensus_fasta, bam_path = variant_caller.assemble_consensus_medaka(
             fastq_path=fastq_path,
             reference_path=reference_path,
-            output_dir=temp_work_dir,
+            output_dir=output_dir,
             medaka_model=medaka_model,
+            batch_size=batch_size,
         )
 
         # Parse reference and consensus sequences
@@ -227,15 +228,11 @@ def _run_assemble_consensus_job(
             deletions=sum(1 for m in mutations if m.type == "deletion"),
         )
 
-        # Copy output files to user's output directory
-        final_consensus = os.path.join(output_dir, "consensus.fasta")
-        final_bam = os.path.join(output_dir, "aligned.bam")
-        final_bai = os.path.join(output_dir, "aligned.bam.bai")
-
-        shutil.copy2(consensus_fasta, final_consensus)
-        shutil.copy2(bam_path, final_bam)
-        if os.path.exists(bam_path + ".bai"):
-            shutil.copy2(bam_path + ".bai", final_bai)
+        # Files are already in output_dir (we work there directly now).
+        # Just resolve the canonical paths for the result record.
+        final_consensus = os.path.realpath(consensus_fasta)
+        final_bam       = os.path.realpath(bam_path)
+        final_bai       = final_bam + ".bai"
 
         # Cap alignment strings to avoid serialising megabytes into JSON
         aligned_ref   = result.aligned_ref[:_ALIGNMENT_PREVIEW_CAP]
@@ -269,16 +266,10 @@ def _run_assemble_consensus_job(
         logger.exception("Assemble consensus job %s failed", job_id)
         _jobs[job_id] = JobStatus(job_id=job_id, status="error", error=str(exc))
     finally:
-        # Clean up temporary input files and working directory
-        try:
-            os.unlink(reference_path)
-            os.unlink(fastq_path)
-        except OSError:
-            pass
-
-        if temp_work_dir and os.path.exists(temp_work_dir):
+        # Clean up temporary input files (uploaded to /tmp by the router)
+        for path in (reference_path, fastq_path):
             try:
-                shutil.rmtree(temp_work_dir)
+                os.unlink(path)
             except OSError:
                 pass
 
@@ -367,6 +358,10 @@ async def assemble_consensus(
     fastq = form.get("fastq")
     output_dir = form.get("output_dir")
     medaka_model = form.get("medaka_model") or "r941_min_high_g360"
+    try:
+        batch_size = int(form.get("batch_size") or 10)
+    except (ValueError, TypeError):
+        batch_size = 10
 
     if not isinstance(reference, UPLOAD_FILE_TYPES):
         raise HTTPException(422, "Field 'reference' is required")
@@ -405,6 +400,7 @@ async def assemble_consensus(
         fastq_path,
         output_dir,
         medaka_model,
+        batch_size,
     )
 
     return {"job_id": job_id}
@@ -553,6 +549,7 @@ class DriveVerifyAssembleBody(BaseModel):
     fastq_file_name: str
     output_dir: str
     medaka_model: str = "r941_min_high_g360"
+    batch_size: int = 10
 
 
 def _download_drive_file_to_temp(session_token: str, file_id: str, filename: str, temp_dir: str) -> str:
@@ -624,5 +621,6 @@ async def assemble_consensus_drive(
         fastq_path,
         body.output_dir,
         body.medaka_model,
+        body.batch_size,
     )
     return {"job_id": job_id}

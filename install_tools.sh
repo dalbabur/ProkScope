@@ -5,55 +5,48 @@ set -e
 
 echo "Installing bioinformatics tools for ProkScope..."
 
-# Check if running with sudo privileges
 if [ "$EUID" -ne 0 ]; then
-    echo "This script requires sudo privileges to install system packages."
+    echo "This script requires sudo privileges."
     echo "Please run with: sudo bash install_tools.sh"
     exit 1
 fi
 
-# Update package list
-echo "Updating package list..."
 apt-get update
 
-# Install minimap2
-echo "Installing minimap2..."
-if ! command -v minimap2 &> /dev/null; then
-    apt-get install -y minimap2
-    echo "✓ minimap2 installed"
-else
-    echo "✓ minimap2 already installed"
-fi
+install_if_missing() {
+    local cmd=$1
+    local pkg=${2:-$1}
+    if ! command -v "$cmd" &> /dev/null; then
+        echo "Installing $pkg..."
+        apt-get install -y "$pkg"
+        echo "✓ $pkg installed"
+    else
+        echo "✓ $cmd already installed ($(command -v $cmd))"
+    fi
+}
 
-# Install samtools
-echo "Installing samtools..."
-if ! command -v samtools &> /dev/null; then
-    apt-get install -y samtools
-    echo "✓ samtools installed"
-else
-    echo "✓ samtools already installed"
-fi
+# Core alignment tools
+install_if_missing minimap2
+install_if_missing samtools
 
-# Install medaka (Python package)
-echo "Installing medaka..."
-if ! command -v medaka &> /dev/null; then
-    pip install medaka
-    echo "✓ medaka installed"
-else
-    echo "✓ medaka already installed"
-fi
+# Required by medaka 2.x for VCF processing
+install_if_missing bcftools
+install_if_missing bgzip tabix   # bgzip ships with tabix on Debian/Ubuntu
+install_if_missing tabix tabix
 
-# Clean up
+pip install medaka pyabpoa
+
 rm -rf /var/lib/apt/lists/*
 
-# Verify installations
 echo ""
 echo "Verifying installations..."
-minimap2 --version && echo "✓ minimap2 working"
-samtools --version && echo "✓ samtools working"
-medaka --version && echo "✓ medaka working"
-medaka_consensus --version && echo "✓ medaka_consensus working"
-medaka_haploid_variant --version && echo "✓ medaka_haploid_variant working"
+for tool in minimap2 samtools bcftools bgzip tabix medaka medaka_consensus; do
+    if command -v "$tool" &> /dev/null; then
+        echo "✓ $tool: $(command -v $tool)"
+    else
+        echo "✗ $tool: NOT FOUND"
+    fi
+done
 
 echo ""
-echo "All bioinformatics tools installed successfully!"
+echo "Done."

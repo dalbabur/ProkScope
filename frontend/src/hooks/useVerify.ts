@@ -23,13 +23,15 @@ export async function assembleConsensus(
   referenceFile: File,
   fastqFile: File,
   outputDir: string,
-  medakaModel: string = 'r941_min_high_g360'
+  medakaModel: string = 'r941_min_high_g360',
+  batchSize: number = 10,
 ): Promise<string> {
   const formData = new FormData();
   formData.append('reference', referenceFile);
   formData.append('fastq', fastqFile);
   formData.append('output_dir', outputDir);
   formData.append('medaka_model', medakaModel);
+  formData.append('batch_size', String(batchSize));
 
   const response = await axios.post(`${API_BASE}/api/verify/assemble-consensus`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
@@ -83,6 +85,7 @@ export async function assembleConsensusDrive(
   fastqFileName: string,
   outputDir: string,
   medakaModel: string = 'r941_min_high_g360',
+  batchSize: number = 10,
 ): Promise<string> {
   const response = await axios.post(`${API_BASE}/api/verify/assemble-consensus-drive`, {
     session_token: sessionToken,
@@ -92,6 +95,7 @@ export async function assembleConsensusDrive(
     fastq_file_name: fastqFileName,
     output_dir: outputDir,
     medaka_model: medakaModel,
+    batch_size: batchSize,
   });
   return response.data.job_id;
 }

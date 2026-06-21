@@ -23,8 +23,6 @@ import type { DriveFile, JobStatus, VerifyResult } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
-// ─── helpers ────────────────────────────────────────────────────────────────
-
 function mutationsFromResult(result: any) {
   if (!result) return [];
   if ('results' in result) {
@@ -39,12 +37,10 @@ type WorkflowMode = 'compare' | 'assemble';
 type InputSource = 'local' | 'drive';
 
 const MEDAKA_MODELS = [
-  '',                              // auto-detect (recommended for medaka 2.x)
-  // Current R10.4.1 models (medaka 2.x)
+  '',
   'dna_r10.4.1_e8.2_400bps_sup@v5.0.0',
   'dna_r10.4.1_e8.2_400bps_hac@v5.0.0',
   'dna_r10.4.1_e8.2_260bps_sup@v5.0.0',
-  // Legacy R9.4.1 models (still accepted by medaka 2.x)
   'r941_min_high_g360',
   'r941_min_fast_g303',
   'r941_prom_high_g360',
@@ -57,7 +53,7 @@ const REF_EXTS = ['.fasta', '.fa', '.fna', '.gb', '.gbk', '.genbank'];
 const ASM_EXTS = ['.fasta', '.fa', '.fna', '.gb', '.gbk', '.genbank'];
 const FASTQ_EXTS = ['.fastq', '.fq', '.fastq.gz', '.fq.gz'];
 
-// ─── DriveSlotPicker ────────────────────────────────────────────────────────
+// ─── DriveSlotPicker ─────────────────────────────────────────────────────────
 
 interface DriveSlotPickerProps {
   label: string;
@@ -80,9 +76,7 @@ function DriveSlotPicker({ label, allowedExts, selected, onSelect, disabled }: D
       const resp = await axios.get<DriveFile[]>(`${API_BASE}/api/drive/files`, {
         params: { session_token: driveSessionToken },
       });
-      setFiles(
-        resp.data.filter((f) => allowedExts.some((ext) => f.name.toLowerCase().endsWith(ext)))
-      );
+      setFiles(resp.data.filter((f) => allowedExts.some((ext) => f.name.toLowerCase().endsWith(ext))));
     } catch (err: any) {
       setError(err.message ?? 'Failed to list Drive files');
     } finally {
@@ -96,17 +90,10 @@ function DriveSlotPicker({ label, allowedExts, selected, onSelect, disabled }: D
   };
 
   const pill: React.CSSProperties = {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 6,
-    padding: '3px 10px',
-    borderRadius: 20,
-    background: '#1f6feb33',
-    border: '1px solid #1f6feb',
-    fontSize: 12,
-    color: '#58a6ff',
-    cursor: 'pointer',
-    marginTop: 4,
+    display: 'inline-flex', alignItems: 'center', gap: 6,
+    padding: '3px 10px', borderRadius: 20,
+    background: '#1f6feb33', border: '1px solid #1f6feb',
+    fontSize: 12, color: '#58a6ff', cursor: 'pointer', marginTop: 4,
   };
 
   return (
@@ -115,12 +102,7 @@ function DriveSlotPicker({ label, allowedExts, selected, onSelect, disabled }: D
         <div style={pill}>
           <span>📄 {selected.name}</span>
           {!disabled && (
-            <span
-              onClick={() => onSelect(null)}
-              style={{ marginLeft: 4, color: '#8b949e', cursor: 'pointer' }}
-            >
-              ✕
-            </span>
+            <span onClick={() => onSelect(null)} style={{ marginLeft: 4, color: '#8b949e', cursor: 'pointer' }}>✕</span>
           )}
         </div>
       ) : (
@@ -128,14 +110,9 @@ function DriveSlotPicker({ label, allowedExts, selected, onSelect, disabled }: D
           onClick={toggle}
           disabled={disabled || !driveSessionToken}
           style={{
-            fontSize: 12,
-            padding: '4px 10px',
-            background: '#161b22',
-            border: '1px solid #30363d',
-            color: driveSessionToken ? '#58a6ff' : '#484f58',
-            borderRadius: 6,
-            cursor: disabled || !driveSessionToken ? 'not-allowed' : 'pointer',
-            marginTop: 4,
+            fontSize: 12, padding: '4px 10px', background: '#161b22',
+            border: '1px solid #30363d', color: driveSessionToken ? '#58a6ff' : '#484f58',
+            borderRadius: 6, cursor: disabled || !driveSessionToken ? 'not-allowed' : 'pointer', marginTop: 4,
           }}
         >
           {driveSessionToken ? '📂 Browse Drive' : 'Connect Drive first'}
@@ -143,46 +120,21 @@ function DriveSlotPicker({ label, allowedExts, selected, onSelect, disabled }: D
       )}
 
       {open && !selected && (
-        <div
-          style={{
-            marginTop: 6,
-            maxHeight: 180,
-            overflow: 'auto',
-            border: '1px solid #30363d',
-            borderRadius: 6,
-            background: '#0d1117',
-            padding: 6,
-          }}
-        >
+        <div style={{ marginTop: 6, maxHeight: 180, overflow: 'auto', border: '1px solid #30363d', borderRadius: 6, background: '#0d1117', padding: 6 }}>
           {loading && <div style={{ fontSize: 12, color: '#8b949e', padding: 4 }}>Loading…</div>}
           {!loading && files.length === 0 && (
-            <div style={{ fontSize: 12, color: '#8b949e', padding: 4 }}>
-              No matching files found ({allowedExts.join(', ')})
-            </div>
+            <div style={{ fontSize: 12, color: '#8b949e', padding: 4 }}>No matching files ({allowedExts.join(', ')})</div>
           )}
           {files.map((f) => (
             <div
               key={f.id}
-              onClick={() => {
-                onSelect(f);
-                setOpen(false);
-              }}
-              style={{
-                fontSize: 12,
-                padding: '4px 6px',
-                cursor: 'pointer',
-                borderRadius: 4,
-                color: '#c9d1d9',
-              }}
+              onClick={() => { onSelect(f); setOpen(false); }}
+              style={{ fontSize: 12, padding: '4px 6px', cursor: 'pointer', borderRadius: 4, color: '#c9d1d9' }}
               onMouseEnter={(e) => (e.currentTarget.style.background = '#161b22')}
               onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
             >
               📄 {f.name}
-              {f.size && (
-                <span style={{ color: '#484f58', marginLeft: 8 }}>
-                  {(parseInt(f.size) / 1024 / 1024).toFixed(1)} MB
-                </span>
-              )}
+              {f.size && <span style={{ color: '#484f58', marginLeft: 8 }}>{(parseInt(f.size) / 1024 / 1024).toFixed(1)} MB</span>}
             </div>
           ))}
         </div>
@@ -191,7 +143,7 @@ function DriveSlotPicker({ label, allowedExts, selected, onSelect, disabled }: D
   );
 }
 
-// ─── FileInputRow ────────────────────────────────────────────────────────────
+// ─── FileInputRow ─────────────────────────────────────────────────────────────
 
 interface FileInputRowProps {
   label: string;
@@ -206,28 +158,13 @@ interface FileInputRowProps {
   disabled?: boolean;
 }
 
-function FileInputRow({
-  label,
-  localAccept,
-  allowedExts,
-  localFile,
-  driveFile,
-  source,
-  onSourceChange,
-  onLocalChange,
-  onDriveChange,
-  disabled,
-}: FileInputRowProps) {
+function FileInputRow({ label, localAccept, allowedExts, localFile, driveFile, source, onSourceChange, onLocalChange, onDriveChange, disabled }: FileInputRowProps) {
   const { driveSessionToken } = useStore();
 
   const tabStyle = (active: boolean): React.CSSProperties => ({
-    padding: '2px 10px',
-    fontSize: 11,
-    border: '1px solid #30363d',
+    padding: '2px 10px', fontSize: 11, border: '1px solid #30363d',
     background: active ? '#21262d' : 'transparent',
-    color: active ? '#c9d1d9' : '#484f58',
-    cursor: 'pointer',
-    borderRadius: 4,
+    color: active ? '#c9d1d9' : '#484f58', cursor: 'pointer', borderRadius: 4,
   });
 
   const chosen = source === 'local' ? localFile?.name : driveFile?.name;
@@ -237,86 +174,60 @@ function FileInputRow({
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
         <label style={{ fontSize: 12, color: '#8b949e' }}>{label}</label>
         <div style={{ display: 'flex', gap: 4 }}>
-          <button style={tabStyle(source === 'local')} onClick={() => onSourceChange('local')} disabled={disabled}>
-            Local
-          </button>
+          <button style={tabStyle(source === 'local')} onClick={() => onSourceChange('local')} disabled={disabled}>Local</button>
           <button
             style={tabStyle(source === 'drive')}
             onClick={() => onSourceChange('drive')}
             disabled={disabled || !driveSessionToken}
             title={!driveSessionToken ? 'Connect Google Drive first' : undefined}
-          >
-            Drive
-          </button>
+          >Drive</button>
         </div>
       </div>
 
       {source === 'local' ? (
-        <input
-          type="file"
-          accept={localAccept}
-          onChange={(e) => onLocalChange(e.target.files?.[0] ?? null)}
-          disabled={disabled}
-          style={{ fontSize: 12, width: '100%' }}
-        />
+        <input type="file" accept={localAccept} onChange={(e) => onLocalChange(e.target.files?.[0] ?? null)} disabled={disabled} style={{ fontSize: 12, width: '100%' }} />
       ) : (
-        <DriveSlotPicker
-          label={label}
-          allowedExts={allowedExts}
-          selected={driveFile}
-          onSelect={onDriveChange}
-          disabled={disabled}
-        />
+        <DriveSlotPicker label={label} allowedExts={allowedExts} selected={driveFile} onSelect={onDriveChange} disabled={disabled} />
       )}
 
-      {chosen && (
-        <div style={{ fontSize: 11, color: '#3fb950', marginTop: 3 }}>✓ {chosen}</div>
-      )}
+      {chosen && <div style={{ fontSize: 11, color: '#3fb950', marginTop: 3 }}>✓ {chosen}</div>}
     </div>
   );
 }
 
-// ─── VerifyAssembleTab ───────────────────────────────────────────────────────
+// ─── VerifyAssembleTab ────────────────────────────────────────────────────────
 
 export function VerifyAssembleTab() {
-  const { sequences, annotations, comparisonResult, hiddenFeatureTypes, toggleFeatureType, error, driveSessionToken } =
-    useStore();
+  const { sequences, annotations, comparisonResult, hiddenFeatureTypes, toggleFeatureType, error, driveSessionToken } = useStore();
   const [selectedRange, setSelectedRange] = useState<{ start: number; end: number } | null>(null);
 
-  // Workflow state
   const [mode, setMode] = useState<WorkflowMode>('compare');
 
-  // Reference
   const [refSource, setRefSource] = useState<InputSource>('local');
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [referenceDriveFile, setReferenceDriveFile] = useState<DriveFile | null>(null);
 
-  // Assembly (compare mode)
   const [asmSource, setAsmSource] = useState<InputSource>('local');
   const [assemblyFile, setAssemblyFile] = useState<File | null>(null);
   const [assemblyDriveFile, setAssemblyDriveFile] = useState<DriveFile | null>(null);
 
-  // FASTQ (assemble mode)
   const [fastqSource, setFastqSource] = useState<InputSource>('local');
   const [fastqFile, setFastqFile] = useState<File | null>(null);
   const [fastqDriveFile, setFastqDriveFile] = useState<DriveFile | null>(null);
 
   const [outputDir, setOutputDir] = useState<string>('');
-  const [medakaModel, setMedakaModel] = useState<string>('r941_min_high_g360');
+  const [medakaModel, setMedakaModel] = useState<string>('');
+  const [batchSize, setBatchSize] = useState<number>(10);
   const [isRunning, setIsRunning] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
   const [result, setResult] = useState<VerifyResult | null>(null);
   const [workflowError, setWorkflowError] = useState<string | null>(null);
 
-  // Auto-fill output dir on mount
   useEffect(() => {
-    suggestOutputDir()
-      .then((dir) => setOutputDir(dir))
-      .catch(() => {/* leave blank, user fills in */});
+    suggestOutputDir().then(setOutputDir).catch(() => {});
   }, []);
 
-  // Poll job status
   useEffect(() => {
     if (!jobId || !jobStatus || jobStatus.status === 'done' || jobStatus.status === 'error') return;
     const interval = setInterval(async () => {
@@ -324,8 +235,7 @@ export function VerifyAssembleTab() {
         const status = await pollStatus(jobId);
         setJobStatus(status);
         if (status.status === 'done') {
-          const jobResult = await getResult(jobId);
-          setResult(jobResult);
+          setResult(await getResult(jobId));
           setIsRunning(false);
         } else if (status.status === 'error') {
           setWorkflowError(status.error || 'Job failed');
@@ -342,88 +252,50 @@ export function VerifyAssembleTab() {
     setWorkflowError(null);
     setResult(null);
 
-    if (!outputDir.trim()) {
-      setWorkflowError('Please specify an output directory');
-      return;
-    }
+    if (!outputDir.trim()) { setWorkflowError('Please specify an output directory'); return; }
 
     try {
       setIsRunning(true);
 
       if (mode === 'compare') {
-        // Validate
         const refReady = refSource === 'local' ? !!referenceFile : !!referenceDriveFile;
         const asmReady = asmSource === 'local' ? !!assemblyFile : !!assemblyDriveFile;
         if (!refReady) { setWorkflowError('Please select a reference genome'); setIsRunning(false); return; }
         if (!asmReady) { setWorkflowError('Please select an assembly file'); setIsRunning(false); return; }
 
         let newJobId: string;
-        const bothLocal = refSource === 'local' && asmSource === 'local';
-        const bothDrive = refSource === 'drive' && asmSource === 'drive';
-
-        if (bothLocal) {
+        if (refSource === 'local' && asmSource === 'local') {
           newJobId = await compareAssembly(referenceFile!, assemblyFile!, outputDir);
-        } else if (bothDrive) {
-          newJobId = await compareAssemblyDrive(
-            driveSessionToken!,
-            referenceDriveFile!.id, referenceDriveFile!.name,
-            assemblyDriveFile!.id, assemblyDriveFile!.name,
-            outputDir,
-          );
+        } else if (refSource === 'drive' && asmSource === 'drive') {
+          newJobId = await compareAssemblyDrive(driveSessionToken!, referenceDriveFile!.id, referenceDriveFile!.name, assemblyDriveFile!.id, assemblyDriveFile!.name, outputDir);
         } else {
-          // Mixed: download Drive file(s) locally first, then use local endpoint
           let ref = referenceFile;
           let asm = assemblyFile;
-
-          if (refSource === 'drive') {
-            const bytes = await fetchDriveFileAsBlob(driveSessionToken!, referenceDriveFile!.id);
-            ref = new File([bytes], referenceDriveFile!.name);
-          }
-          if (asmSource === 'drive') {
-            const bytes = await fetchDriveFileAsBlob(driveSessionToken!, assemblyDriveFile!.id);
-            asm = new File([bytes], assemblyDriveFile!.name);
-          }
+          if (refSource === 'drive') { const b = await fetchDriveFileAsBlob(driveSessionToken!, referenceDriveFile!.id); ref = new File([b], referenceDriveFile!.name); }
+          if (asmSource === 'drive') { const b = await fetchDriveFileAsBlob(driveSessionToken!, assemblyDriveFile!.id); asm = new File([b], assemblyDriveFile!.name); }
           newJobId = await compareAssembly(ref!, asm!, outputDir);
         }
-
         setJobId(newJobId);
         setJobStatus({ job_id: newJobId, status: 'pending' });
 
       } else {
-        // assemble mode
         const refReady = refSource === 'local' ? !!referenceFile : !!referenceDriveFile;
         const fqReady  = fastqSource === 'local' ? !!fastqFile : !!fastqDriveFile;
         if (!refReady) { setWorkflowError('Please select a reference genome'); setIsRunning(false); return; }
         if (!fqReady)  { setWorkflowError('Please select a FASTQ file'); setIsRunning(false); return; }
 
         let newJobId: string;
-        const bothLocal = refSource === 'local' && fastqSource === 'local';
-        const bothDrive = refSource === 'drive' && fastqSource === 'drive';
-
-        if (bothLocal) {
-          newJobId = await assembleConsensus(referenceFile!, fastqFile!, outputDir, medakaModel);
-        } else if (bothDrive) {
-          newJobId = await assembleConsensusDrive(
-            driveSessionToken!,
-            referenceDriveFile!.id, referenceDriveFile!.name,
-            fastqDriveFile!.id, fastqDriveFile!.name,
-            outputDir,
-            medakaModel,
-          );
+        if (refSource === 'local' && fastqSource === 'local') {
+          newJobId = await assembleConsensus(referenceFile!, fastqFile!, outputDir, medakaModel, batchSize);
+        } else if (refSource === 'drive' && fastqSource === 'drive') {
+          newJobId = await assembleConsensusDrive(driveSessionToken!, referenceDriveFile!.id, referenceDriveFile!.name, fastqDriveFile!.id, fastqDriveFile!.name, outputDir, medakaModel, batchSize);
         } else {
           let ref = referenceFile;
           let fq  = fastqFile;
-          if (refSource === 'drive') {
-            const bytes = await fetchDriveFileAsBlob(driveSessionToken!, referenceDriveFile!.id);
-            ref = new File([bytes], referenceDriveFile!.name);
-          }
-          if (fastqSource === 'drive') {
-            const bytes = await fetchDriveFileAsBlob(driveSessionToken!, fastqDriveFile!.id);
-            fq = new File([bytes], fastqDriveFile!.name);
-          }
-          newJobId = await assembleConsensus(ref!, fq!, outputDir, medakaModel);
+          if (refSource === 'drive') { const b = await fetchDriveFileAsBlob(driveSessionToken!, referenceDriveFile!.id); ref = new File([b], referenceDriveFile!.name); }
+          if (fastqSource === 'drive') { const b = await fetchDriveFileAsBlob(driveSessionToken!, fastqDriveFile!.id); fq = new File([b], fastqDriveFile!.name); }
+          newJobId = await assembleConsensus(ref!, fq!, outputDir, medakaModel, batchSize);
         }
-
         setJobId(newJobId);
         setJobStatus({ job_id: newJobId, status: 'pending' });
       }
@@ -437,22 +309,16 @@ export function VerifyAssembleTab() {
     () => annotations.filter((ann) => !hiddenFeatureTypes.includes(ann.feature_type || 'unknown')),
     [annotations, hiddenFeatureTypes]
   );
-  const spec = useMemo(
-    () => buildGoslingSpec(sequences, filteredAnnotations, comparisonResult),
-    [sequences, filteredAnnotations, comparisonResult]
-  );
+  const spec = useMemo(() => buildGoslingSpec(sequences, filteredAnnotations, comparisonResult), [sequences, filteredAnnotations, comparisonResult]);
   const allMutations = useMemo(() => {
     const base = result?.mutations || mutationsFromResult(comparisonResult);
     if (!selectedRange) return base;
     return base.filter((item: any) => item.position >= selectedRange.start && item.position <= selectedRange.end);
   }, [comparisonResult, result, selectedRange]);
 
-  const inputSectionStyle: React.CSSProperties = {
-    padding: 12,
-    background: '#161b22',
-    border: '1px solid #30363d',
-    borderRadius: 6,
-  };
+  const sectionStyle: React.CSSProperties = { padding: 12, background: '#161b22', border: '1px solid #30363d', borderRadius: 6 };
+  const inputStyle: React.CSSProperties = { fontSize: 12, padding: '4px 8px', background: '#0d1117', border: '1px solid #30363d', color: '#c9d1d9', borderRadius: 6, width: '100%' };
+  const labelStyle: React.CSSProperties = { display: 'block', fontSize: 12, marginBottom: 4, color: '#8b949e' };
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', height: '100%', gap: 0 }}>
@@ -465,63 +331,48 @@ export function VerifyAssembleTab() {
       </aside>
 
       <main style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 12, overflow: 'auto' }}>
+
         {/* Workflow mode */}
-        <section style={inputSectionStyle}>
+        <section style={sectionStyle}>
           <h3 style={{ margin: '0 0 12px', fontSize: 14 }}>Workflow Mode</h3>
           <div style={{ display: 'flex', gap: 16 }}>
             {(['compare', 'assemble'] as WorkflowMode[]).map((m) => (
               <label key={m} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                <input
-                  type="radio"
-                  value={m}
-                  checked={mode === m}
-                  onChange={() => setMode(m)}
-                  disabled={isRunning}
-                />
-                <span style={{ fontSize: 13 }}>
-                  {m === 'compare' ? 'Compare Assembly' : 'Assemble from ONT Reads'}
-                </span>
+                <input type="radio" value={m} checked={mode === m} onChange={() => setMode(m)} disabled={isRunning} />
+                <span style={{ fontSize: 13 }}>{m === 'compare' ? 'Compare Assembly' : 'Assemble from ONT Reads'}</span>
               </label>
             ))}
           </div>
         </section>
 
         {/* Input files */}
-        <section style={inputSectionStyle}>
+        <section style={sectionStyle}>
           <h3 style={{ margin: '0 0 12px', fontSize: 14 }}>
             Input Files
-            {!driveSessionToken && (
-              <span style={{ fontSize: 11, color: '#484f58', fontWeight: 'normal', marginLeft: 10 }}>
-                Connect Google Drive (sidebar) to enable Drive file selection
-              </span>
-            )}
+            {!driveSessionToken && <span style={{ fontSize: 11, color: '#484f58', fontWeight: 'normal', marginLeft: 10 }}>Connect Google Drive (sidebar) to enable Drive file selection</span>}
           </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {/* Reference */}
+
+            {/* Reference — always shown */}
             <FileInputRow
               label="Reference Genome (FASTA / GenBank)"
               localAccept=".fasta,.fa,.fna,.gb,.gbk,.genbank"
               allowedExts={REF_EXTS}
-              localFile={referenceFile}
-              driveFile={referenceDriveFile}
-              source={refSource}
-              onSourceChange={setRefSource}
-              onLocalChange={setReferenceFile}
-              onDriveChange={setReferenceDriveFile}
+              localFile={referenceFile} driveFile={referenceDriveFile}
+              source={refSource} onSourceChange={setRefSource}
+              onLocalChange={setReferenceFile} onDriveChange={setReferenceDriveFile}
               disabled={isRunning}
             />
 
+            {/* Mode-specific inputs */}
             {mode === 'compare' ? (
               <FileInputRow
                 label="Assembly (FASTA / GenBank)"
                 localAccept=".fasta,.fa,.fna,.gb,.gbk,.genbank"
                 allowedExts={ASM_EXTS}
-                localFile={assemblyFile}
-                driveFile={assemblyDriveFile}
-                source={asmSource}
-                onSourceChange={setAsmSource}
-                onLocalChange={setAssemblyFile}
-                onDriveChange={setAssemblyDriveFile}
+                localFile={assemblyFile} driveFile={assemblyDriveFile}
+                source={asmSource} onSourceChange={setAsmSource}
+                onLocalChange={setAssemblyFile} onDriveChange={setAssemblyDriveFile}
                 disabled={isRunning}
               />
             ) : (
@@ -530,82 +381,55 @@ export function VerifyAssembleTab() {
                   label="ONT Reads (FASTQ / FASTQ.gz)"
                   localAccept=".fastq,.fq,.fastq.gz,.fq.gz"
                   allowedExts={FASTQ_EXTS}
-                  localFile={fastqFile}
-                  driveFile={fastqDriveFile}
-                  source={fastqSource}
-                  onSourceChange={setFastqSource}
-                  onLocalChange={setFastqFile}
-                  onDriveChange={setFastqDriveFile}
+                  localFile={fastqFile} driveFile={fastqDriveFile}
+                  source={fastqSource} onSourceChange={setFastqSource}
+                  onLocalChange={setFastqFile} onDriveChange={setFastqDriveFile}
                   disabled={isRunning}
                 />
                 <div>
-                  <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: '#8b949e' }}>Medaka Model</label>
-                  <select
-                    value={medakaModel}
-                    onChange={(e) => setMedakaModel(e.target.value)}
-                    disabled={isRunning}
-                    style={{
-                      fontSize: 12,
-                      padding: '4px 8px',
-                      background: '#0d1117',
-                      border: '1px solid #30363d',
-                      color: '#c9d1d9',
-                      borderRadius: 6,
-                      width: '100%',
-                    }}
-                  >
+                  <label style={labelStyle}>Medaka Model</label>
+                  <select value={medakaModel} onChange={(e) => setMedakaModel(e.target.value)} disabled={isRunning} style={inputStyle}>
                     {MEDAKA_MODELS.map((m) => (
-                    <option key={m} value={m}>{m === '' ? 'Auto-detect (recommended)' : m}</option>
-                  ))}
+                      <option key={m} value={m}>{m === '' ? 'Auto-detect (recommended)' : m}</option>
+                    ))}
                   </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>
+                    Medaka Batch Size
+                    <span style={{ fontSize: 11, color: '#484f58', marginLeft: 6 }}>(lower = less RAM; reduce if job is killed)</span>
+                  </label>
+                  <input
+                    type="number" min={1} max={200} value={batchSize}
+                    onChange={(e) => setBatchSize(Math.max(1, parseInt(e.target.value) || 10))}
+                    disabled={isRunning} style={inputStyle}
+                  />
                 </div>
               </>
             )}
 
-            {/* Output directory */}
+            {/* Output directory — always shown */}
             <div>
-              <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: '#8b949e' }}>
+              <label style={labelStyle}>
                 Output Directory
-                <span style={{ fontSize: 11, color: '#484f58', marginLeft: 6 }}>
-                  (SAM/BAM/consensus written here)
-                </span>
+                <span style={{ fontSize: 11, color: '#484f58', marginLeft: 6 }}>(BAM/consensus written here)</span>
               </label>
               <input
-                type="text"
-                value={outputDir}
+                type="text" value={outputDir}
                 onChange={(e) => setOutputDir(e.target.value)}
                 placeholder="/path/to/output"
-                disabled={isRunning}
-                style={{
-                  fontSize: 12,
-                  padding: '4px 8px',
-                  background: '#0d1117',
-                  border: '1px solid #30363d',
-                  color: '#c9d1d9',
-                  borderRadius: 6,
-                  width: '100%',
-                }}
+                disabled={isRunning} style={inputStyle}
               />
               <div style={{ fontSize: 11, color: '#484f58', marginTop: 3 }}>
-                In Codespaces: <code style={{ color: '#8b949e' }}>/workspaces/…</code> &nbsp;|&nbsp;
-                Docker: <code style={{ color: '#8b949e' }}>/data</code> &nbsp;|&nbsp;
-                Local: any writable path
+                Codespaces: <code style={{ color: '#8b949e' }}>/workspaces/…</code> &nbsp;|&nbsp;
+                Docker: <code style={{ color: '#8b949e' }}>/data</code>
               </div>
             </div>
 
             <button
               onClick={handleRunWorkflow}
               disabled={isRunning}
-              style={{
-                padding: '8px 16px',
-                background: isRunning ? '#30363d' : '#238636',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 6,
-                fontSize: 13,
-                cursor: isRunning ? 'not-allowed' : 'pointer',
-                marginTop: 4,
-              }}
+              style={{ padding: '8px 16px', background: isRunning ? '#30363d' : '#238636', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, cursor: isRunning ? 'not-allowed' : 'pointer', marginTop: 4 }}
             >
               {isRunning ? `Running (${jobStatus?.status || 'pending'})…` : 'Run Workflow'}
             </button>
@@ -620,14 +444,13 @@ export function VerifyAssembleTab() {
 
         {/* Quality Metrics */}
         {result && (
-          <section style={inputSectionStyle}>
+          <section style={sectionStyle}>
             <h3 style={{ margin: '0 0 12px', fontSize: 14 }}>Quality Metrics</h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12 }}>
               <div>
                 <div style={{ fontSize: 11, color: '#8b949e', marginBottom: 2 }}>Identity</div>
                 <div style={{ fontSize: 16, fontWeight: 'bold', color: result.quality_metrics.identity_percent >= 95 ? '#3fb950' : '#f85149' }}>
-                  {result.quality_metrics.identity_percent.toFixed(2)}%
-                  {result.quality_metrics.identity_percent >= 95 ? ' ✓' : ' ⚠'}
+                  {result.quality_metrics.identity_percent.toFixed(2)}% {result.quality_metrics.identity_percent >= 95 ? '✓' : '⚠'}
                 </div>
               </div>
               {result.quality_metrics.coverage_percent != null && (
@@ -645,12 +468,12 @@ export function VerifyAssembleTab() {
             </div>
             {result.consensus_fasta_path && (
               <div style={{ marginTop: 12, fontSize: 12, color: '#8b949e' }}>
-                Consensus saved: <span style={{ color: '#c9d1d9', fontFamily: 'monospace' }}>{result.consensus_fasta_path}</span>
+                Consensus: <span style={{ color: '#c9d1d9', fontFamily: 'monospace' }}>{result.consensus_fasta_path}</span>
               </div>
             )}
             {result.bam_file && (
               <div style={{ marginTop: 4, fontSize: 12, color: '#8b949e' }}>
-                BAM saved: <span style={{ color: '#c9d1d9', fontFamily: 'monospace' }}>{outputDir}/{result.bam_file}</span>
+                BAM: <span style={{ color: '#c9d1d9', fontFamily: 'monospace' }}>{outputDir}/{result.bam_file}</span>
               </div>
             )}
           </section>
@@ -672,15 +495,7 @@ export function VerifyAssembleTab() {
             <h3 style={{ margin: '0 0 6px', fontSize: 13 }}>Alignment</h3>
             <ComparisonView result={
               result
-                ? {
-                    reference_id: result.reference_name,
-                    query_id: result.assembly_or_reads_name,
-                    identity: result.quality_metrics.identity_percent,
-                    alignment_score: 0,
-                    mutations: result.mutations,
-                    aligned_ref: result.aligned_ref ?? '',
-                    aligned_query: result.aligned_query ?? '',
-                  }
+                ? { reference_id: result.reference_name, query_id: result.assembly_or_reads_name, identity: result.quality_metrics.identity_percent, alignment_score: 0, mutations: result.mutations, aligned_ref: result.aligned_ref ?? '', aligned_query: result.aligned_query ?? '' }
                 : comparisonResult
             } />
           </div>
@@ -690,8 +505,6 @@ export function VerifyAssembleTab() {
     </div>
   );
 }
-
-// ─── helpers ────────────────────────────────────────────────────────────────
 
 async function fetchDriveFileAsBlob(sessionToken: string, fileId: string): Promise<ArrayBuffer> {
   const resp = await axios.get(`${API_BASE}/api/drive/download`, {

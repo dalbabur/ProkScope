@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import type { Annotation, FeatureRecord } from '../types';
+import type { Annotation, DriveFile, FeatureRecord } from '../types';
 import { useStore } from '../hooks/useStore';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
+const GENBANK_EXTS = ['.gb', '.gbk', '.genbank'];
 
 type MismatchCount = 0 | 1 | 2 | 3;
 
@@ -17,7 +18,7 @@ function useDebounce<T>(value: T, delay: number): T {
 }
 
 export function FeatureLibrary() {
-  const { sequences, referenceId, annotations, setAnnotations, setError } = useStore();
+  const { sequences, referenceId, annotations, setAnnotations, setError, driveSessionToken } = useStore();
 
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -31,6 +32,12 @@ export function FeatureLibrary() {
   const [dbMissing, setDbMissing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Drive GenBank import state
+  const [driveFiles, setDriveFiles] = useState<DriveFile[]>([]);
+  const [showDrivePicker, setShowDrivePicker] = useState(false);
+  const [selectedDriveIds, setSelectedDriveIds] = useState<Set<string>>(new Set());
+  const [isDriveLoading, setIsDriveLoading] = useState(false);
 
   const debouncedQuery = useDebounce(searchQuery, 300);
 
@@ -128,6 +135,61 @@ export function FeatureLibrary() {
     }
   };
 
+  const fetchDriveGenBankFiles = async () => {
+    if (!driveSessionToken) return;
+    setIsDriveLoading(true);
+    try {
+      const res = await axios.get<DriveFile[]>(`${API_BASE}/api/drive/files`, {
+        params: { session_token: driveSessionToken },
+      });
+      setDriveFiles(res.data.filter((f) => GENBANK_EXTS.some((ext) => f.name.toLowerCase().endsWith(ext))));
+      setShowDrivePicker(true);
+    } catch (err: any) {
+      setError(err?.response?.data?.detail ?? (err as Error).message);
+    } finally {
+      setIsDriveLoading(false);
+    }
+  };
+
+  const handleBuildFromDrive = async () => {
+    if (!driveSessionToken || selectedDriveIds.size === 0) return;
+    setIsDriveLoading(true);
+    try {
+      const selectedFiles = driveFiles.filter((f) => selectedDriveIds.has(f.id));
+      const res = await axios.post<{ loaded: number; files: number; errors: string[] }>(
+        `${API_BASE}/api/features/build-from-drive`,
+        {
+          session_token: driveSessionToken,
+          file_ids: selectedFiles.map((f) => f.id),
+          filenames: selectedFiles.map((f) => f.name),
+        },
+      );
+      setDbMissing(false);
+      setShowDrivePicker(false);
+      setSelectedDriveIds(new Set());
+      await fetchTypes();
+      await fetchFeatures(debouncedQuery, selectedTypes);
+      const { loaded, errors } = res.data;
+      const msg = errors.length > 0
+        ? `Loaded ${loaded} features (${errors.length} file error${errors.length !== 1 ? 's' : ''})`
+        : `Loaded ${loaded} features from Drive`;
+      showToast(msg);
+    } catch (err: any) {
+      setError(err?.response?.data?.detail ?? (err as Error).message);
+    } finally {
+      setIsDriveLoading(false);
+    }
+  };
+
+  const toggleDriveId = (id: string) => {
+    setSelectedDriveIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const visibleFeatures = features.slice(0, 200);
 
   return (
@@ -150,8 +212,8 @@ export function FeatureLibrary() {
 
       {open && (
         <div style={{ display: 'grid', gap: 6 }}>
-          {/* Load DB button */}
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          {/* Load DB buttons */}
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             <button
               onClick={() => fileInputRef.current?.click()}
               style={btnStyle}
@@ -159,6 +221,16 @@ export function FeatureLibrary() {
             >
               Load DB
             </button>
+            {driveSessionToken && (
+              <button
+                onClick={showDrivePicker ? () => setShowDrivePicker(false) : fetchDriveGenBankFiles}
+                disabled={isDriveLoading}
+                style={btnStyle}
+                title="Pick GenBank files from Google Drive"
+              >
+                {isDriveLoading ? 'Loading…' : showDrivePicker ? 'Hide Drive' : 'Load from Drive'}
+              </button>
+            )}
             <input
               ref={fileInputRef}
               type="file"
@@ -171,6 +243,40 @@ export function FeatureLibrary() {
               }}
             />
           </div>
+
+          {/* Drive GenBank file picker */}
+          {showDrivePicker && (
+            <div style={{ border: '1px solid #30363d', borderRadius: 4, padding: 8 }}>
+              <div style={{ fontSize: 11, color: '#8b949e', marginBottom: 6 }}>
+                Select GenBank files to build feature database:
+              </div>
+              {driveFiles.length === 0 ? (
+                <div style={{ fontSize: 11, color: '#8b949e' }}>No .gb/.gbk files found in Drive</div>
+              ) : (
+                <div style={{ maxHeight: 140, overflowY: 'auto' }}>
+                  {driveFiles.map((f) => (
+                    <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0', fontSize: 12 }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedDriveIds.has(f.id)}
+                        onChange={() => toggleDriveId(f.id)}
+                      />
+                      <span style={{ color: '#e6edf3' }}>{f.name}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              {selectedDriveIds.size > 0 && (
+                <button
+                  onClick={handleBuildFromDrive}
+                  disabled={isDriveLoading}
+                  style={{ ...btnStyle, marginTop: 6, background: '#238636', color: '#fff' }}
+                >
+                  {isDriveLoading ? 'Building…' : `Build DB from ${selectedDriveIds.size} file${selectedDriveIds.size !== 1 ? 's' : ''}`}
+                </button>
+              )}
+            </div>
+          )}
 
           {dbMissing && (
             <div style={{ fontSize: 11, color: '#d29922', lineHeight: 1.4 }}>

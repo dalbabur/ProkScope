@@ -9,7 +9,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from backend.models.schemas import Annotation
-from backend.services.feature_db import FeatureRecord, get_db, reload_db
+from backend.services import drive_client
+from backend.services.feature_db import FeatureRecord, build_db_from_genbank_bytes, get_db, reload_db, set_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -23,6 +24,12 @@ class SearchGenomeRequest(BaseModel):
 
 class UpdateTagsRequest(BaseModel):
     tags: list[str]
+
+
+class BuildFromDriveRequest(BaseModel):
+    session_token: str
+    file_ids: list[str]
+    filenames: list[str]
 
 
 def _try_get_db():
@@ -127,6 +134,33 @@ async def upload_db(file: UploadFile = File(...)) -> dict:
             os.unlink(tmp.name)
         except OSError:
             pass
+
+
+@router.post("/build-from-drive")
+def build_from_drive(request: BuildFromDriveRequest) -> dict:
+    if len(request.file_ids) != len(request.filenames):
+        raise HTTPException(status_code=422, detail="file_ids and filenames must have the same length")
+    if not request.file_ids:
+        raise HTTPException(status_code=422, detail="At least one file is required")
+
+    files: list[tuple[str, bytes]] = []
+    errors: list[str] = []
+    for file_id, filename in zip(request.file_ids, request.filenames):
+        try:
+            content = drive_client.download_file(request.session_token, file_id)
+            files.append((filename, content))
+        except Exception as exc:
+            errors.append(f"{filename}: {exc}")
+
+    if not files:
+        raise HTTPException(status_code=400, detail="No files could be downloaded: " + "; ".join(errors))
+
+    try:
+        built_db = build_db_from_genbank_bytes(files)
+        set_db(built_db)
+        return {"loaded": len(built_db.features), "files": len(files), "errors": errors}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.patch("/{feature_id}/tags", response_model=FeatureRecord)

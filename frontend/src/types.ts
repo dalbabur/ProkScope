@@ -106,3 +106,24 @@ export type CompareResult = {
   summary: Record<string, unknown>;
 };
 
+export type QualityMetrics = {
+  identity_percent: number;
+  coverage_percent?: number | null;
+  total_mutations: number;
+  snps: number;
+  insertions: number;
+  deletions: number;
+};
+
+export type VerifyResult = {
+  job_id: string;
+  mode: 'compare' | 'assemble';
+  quality_metrics: QualityMetrics;
+  mutations: Mutation[];
+  alignment: string;
+  consensus_fasta_path?: string | null;
+  bam_file?: string | null;
+  reference_name: string;
+  assembly_or_reads_name: string;
+};
+

@@ -1,11 +1,11 @@
 {
-  "name": "Genomics Tool",
+  "name": "ProkScope",
   "image": "mcr.microsoft.com/devcontainers/python:3.12-bookworm",
   "features": {
     "ghcr.io/devcontainers/features/node:1": { "version": "20" },
     "ghcr.io/devcontainers/features/docker-in-docker:2": { "version": "latest" }
   },
-  "postCreateCommand": "pip install -r backend/requirements.txt && npm ci --prefix frontend --ignore-scripts",
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y minimap2 samtools && pip install -r backend/requirements.txt && npm ci --prefix frontend --ignore-scripts",
   "forwardPorts": [8000, 5173],
   "portsAttributes": {
     "8000": { "label": "API + App", "onAutoForward": "openBrowser" },

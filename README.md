@@ -1,4 +1,4 @@
-# Genomics Tool
+# ProkScope
 
 Lightweight web app for bacterial genome sequence parsing, annotation overlay, and mutation comparison.
 
@@ -121,3 +121,104 @@ FEATURE_DB_PATH=./feature_db.json   # default; override if stored elsewhere
 | FASTQ (.fastq, .fq) | ✅ | — |
 | GFF3 (.gff, .gff3) | — | ✅ |
 | BED (.bed) | — | ✅ |
+
+## Bioinformatics Tools
+
+ProkScope requires the following bioinformatics tools for the **Verify/Assemble** workflow:
+
+- **minimap2**: Long-read alignment tool for ONT reads
+- **samtools**: SAM/BAM file manipulation
+- **medaka**: Consensus sequence polishing and variant calling from ONT reads
+
+### Automatic Installation (Recommended)
+
+**Using Docker or Devcontainer**: All tools are installed automatically when you build the container.
+
+**Manual Installation**: Run the provided installation script:
+```bash
+sudo bash install_tools.sh
+```
+
+This script will:
+1. Install minimap2 and samtools via apt
+2. Install medaka via pip
+3. Verify all tools are working correctly
+
+### Manual Installation (Alternative)
+
+If you prefer to install manually:
+
+```bash
+# Update package list
+sudo apt-get update
+
+# Install minimap2 and samtools
+sudo apt-get install -y minimap2 samtools
+
+# Install medaka (Python package)
+pip install medaka
+
+# Verify installations
+minimap2 --version
+samtools --version
+medaka --version
+```
+
+**Note**: The Dockerfile and devcontainer.json are pre-configured to install these tools automatically. You only need manual installation if running outside these environments.
+
+## Verify/Assemble Workflow
+
+The **Verify/Assemble** tab provides quality control and consensus assembly for prokaryotic genomes:
+
+### Mode 1: Compare Assembly
+Compare a Plasmidsaurus (or other) assembled genome against a reference to assess quality.
+
+**Inputs**:
+- Reference genome (FASTA or GenBank)
+- Assembled genome (FASTA or GenBank)
+- Output directory path
+
+**Outputs**:
+- Identity percentage
+- Mutation table (SNPs, insertions, deletions)
+- Quality metrics with color-coded indicators
+- Alignment visualization
+- IGV genome browser view
+
+### Mode 2: Assemble from ONT Reads
+Generate a polished consensus genome from raw Oxford Nanopore (ONT) reads.
+
+**Inputs**:
+- Reference genome (FASTA or GenBank)
+- Raw ONT reads (FASTQ or FASTQ.gz)
+- Output directory path
+- Medaka basecalling model (e.g., r941_min_high_g360)
+
+**Pipeline**:
+1. Align reads to reference with minimap2
+2. Convert and sort alignments with samtools
+3. Generate consensus with medaka consensus
+4. Stitch consensus sequence
+5. Compare consensus vs reference
+
+**Outputs**:
+- Polished consensus genome (consensus.fasta)
+- Alignment files (aligned.bam + aligned.bam.bai)
+- Quality metrics (identity %, coverage %, mutations)
+- IGV visualization with reference and alignment tracks
+- JSON result file
+
+### Usage
+
+1. Navigate to the **Verify/Assemble** tab
+2. Select workflow mode (Compare Assembly or Assemble from ONT Reads)
+3. Upload reference genome and assembly/reads files
+4. Specify output directory where results will be saved
+5. (Mode 2 only) Select appropriate medaka model for your sequencing chemistry
+6. Click **Run Workflow**
+7. Monitor job progress (pending → running → done)
+8. View quality metrics and explore results in IGV browser
+
+**Quality Indicators**:
+- ✓ Green: Identity ≥ 95% (good quality)
+- ⚠ Red: Identity < 95% (may need re-assembly)

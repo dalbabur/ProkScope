@@ -148,6 +148,85 @@ def call_variants_medaka(
     )
 
 
+def assemble_consensus_medaka(
+    fastq_path: str,
+    reference_path: str,
+    output_dir: str,
+    medaka_model: str = "r941_min_high_g360",
+) -> tuple[str, str]:
+    """Generate consensus FASTA from ONT reads using medaka consensus workflow.
+
+    Pipeline:
+    1. minimap2: Align FASTQ to reference → SAM
+    2. samtools: Convert SAM → BAM, sort, index
+    3. medaka consensus: Generate consensus HDF from BAM
+    4. medaka stitch: Combine HDF + reference → consensus FASTA
+
+    Args:
+        fastq_path: Path to ONT reads (FASTQ or FASTQ.gz)
+        reference_path: Path to reference genome (FASTA)
+        output_dir: Working directory for intermediate files
+        medaka_model: Medaka basecalling model (default: r941_min_high_g360)
+
+    Returns:
+        (consensus_fasta_path, sorted_bam_path) tuple
+
+    Raises:
+        RuntimeError: If required tools are missing or subprocess fails
+    """
+    work_dir = Path(output_dir)
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    sam_file = str(work_dir / "aligned.sam")
+    unsorted_bam = str(work_dir / "aligned_unsorted.bam")
+    sorted_bam = str(work_dir / "aligned.bam")
+    consensus_hdf = str(work_dir / "consensus.hdf")
+    consensus_fasta = str(work_dir / "consensus.fasta")
+
+    # 1. Align with minimap2
+    minimap2 = _which_required("minimap2")
+    logger.info("Aligning reads with minimap2")
+    result = subprocess.run(
+        [minimap2, "-ax", "map-ont", reference_path, fastq_path, "-o", sam_file],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"minimap2 failed: {result.stderr.decode()}")
+
+    # 2. Convert to sorted BAM
+    samtools = _which_required("samtools")
+    logger.info("Converting to sorted BAM")
+    subprocess.run([samtools, "view", "-bS", sam_file, "-o", unsorted_bam], check=True, capture_output=True)
+    subprocess.run([samtools, "sort", unsorted_bam, "-o", sorted_bam], check=True, capture_output=True)
+    subprocess.run([samtools, "index", sorted_bam], check=True, capture_output=True)
+
+    # Clean up SAM and unsorted BAM
+    os.unlink(sam_file)
+    os.unlink(unsorted_bam)
+
+    # 3. Medaka consensus
+    medaka_consensus_cmd = _which_required("medaka_consensus")
+    logger.info("Running medaka consensus")
+    result = subprocess.run(
+        [medaka_consensus_cmd, sorted_bam, consensus_hdf, "-m", medaka_model, "-t", "2"],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"medaka_consensus failed: {result.stderr.decode()}")
+
+    # 4. Medaka stitch
+    medaka_stitch = _which_required("medaka_stitch")
+    logger.info("Stitching consensus FASTA")
+    result = subprocess.run(
+        [medaka_stitch, consensus_hdf, reference_path, consensus_fasta],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"medaka_stitch failed: {result.stderr.decode()}")
+
+    return (consensus_fasta, sorted_bam)
+
+
 def annotate_variants(
     variants: list[VariantRecord],
     feature_hits: list[Annotation],

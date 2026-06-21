@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.routers import annotate, annotations, compare, comparison, drive, features, sequences
+from backend.routers import annotate, annotations, compare, comparison, drive, features, sequences, verify
 
 app = FastAPI(title="Genomics Tool")
 app.add_middleware(
@@ -61,6 +61,7 @@ app.include_router(comparison.router, prefix="/api/comparison", tags=["compariso
 app.include_router(compare.router, prefix="/api/compare", tags=["compare"])
 app.include_router(drive.router, prefix="/api/drive", tags=["drive"])
 app.include_router(features.router, prefix="/api/features", tags=["features"])
+app.include_router(verify.router, prefix="/api/verify", tags=["verify"])
 
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 if os.path.exists(static_dir):

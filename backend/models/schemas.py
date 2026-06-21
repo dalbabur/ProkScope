@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -92,3 +94,24 @@ class CompareResult(BaseModel):
     isolates: list[IsolateResult] = Field(default_factory=list)
     feature_hits: list[Annotation] = Field(default_factory=list)
     summary: dict = Field(default_factory=dict)
+
+
+class QualityMetrics(BaseModel):
+    identity_percent: float
+    coverage_percent: float | None = None
+    total_mutations: int
+    snps: int
+    insertions: int
+    deletions: int
+
+
+class VerifyResult(BaseModel):
+    job_id: str
+    mode: Literal["compare", "assemble"]
+    quality_metrics: QualityMetrics
+    mutations: list[Mutation]
+    alignment: str
+    consensus_fasta_path: str | None = None
+    bam_file: str | None = None
+    reference_name: str
+    assembly_or_reads_name: str

@@ -8,8 +8,9 @@ import tempfile
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
+from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from backend.models.schemas import (
     Annotation,
@@ -26,6 +27,11 @@ router = APIRouter()
 _jobs: dict[str, JobStatus] = {}
 _job_metadata: dict[str, dict] = {}  # Maps job_id -> {output_dir: str, ...}
 
+# Keep this high enough for ONT FASTQ uploads in the Verify/Assemble workflow.
+MAX_MULTIPART_PART_SIZE = 1024 * 1024 * 1024  # 1 GiB
+
+UPLOAD_FILE_TYPES = (UploadFile, StarletteUploadFile)
+
 
 def _validate_output_dir(output_dir: str) -> None:
     """Validate that output directory exists and is writable."""
@@ -36,6 +42,15 @@ def _validate_output_dir(output_dir: str) -> None:
         raise HTTPException(400, f"Output path is not a directory: {output_dir}")
     if not os.access(output_dir, os.W_OK):
         raise HTTPException(400, f"Output directory is not writable: {output_dir}")
+
+
+async def _parse_multipart_form(request: Request):
+    """Parse multipart form-data with an explicit part-size limit for large uploads."""
+    try:
+        return await request.form(max_files=20, max_fields=50, max_part_size=MAX_MULTIPART_PART_SIZE)
+    except TypeError:
+        # Backward compatibility for Starlette versions that do not expose max_part_size.
+        return await request.form()
 
 
 def _run_compare_assembly_job(
@@ -265,10 +280,8 @@ def _run_assemble_consensus_job(
 
 @router.post("/compare-assembly", response_model=dict)
 async def compare_assembly(
+    request: Request,
     background_tasks: BackgroundTasks,
-    reference: UploadFile = File(...),
-    assembly: UploadFile = File(...),
-    output_dir: str = Form(...),
 ) -> dict:
     """Mode 1: Compare Plasmidsaurus assembly to reference.
 
@@ -280,6 +293,19 @@ async def compare_assembly(
     3. Calculate quality metrics (identity %, mutation counts)
     4. Write result JSON to user-specified output_dir
     """
+    form = await _parse_multipart_form(request)
+
+    reference = form.get("reference")
+    assembly = form.get("assembly")
+    output_dir = form.get("output_dir")
+
+    if not isinstance(reference, UPLOAD_FILE_TYPES):
+        raise HTTPException(422, "Field 'reference' is required")
+    if not isinstance(assembly, UPLOAD_FILE_TYPES):
+        raise HTTPException(422, "Field 'assembly' is required")
+    if not isinstance(output_dir, str) or not output_dir.strip():
+        raise HTTPException(422, "Field 'output_dir' is required")
+
     # Validate output directory
     _validate_output_dir(output_dir)
 
@@ -314,11 +340,8 @@ async def compare_assembly(
 
 @router.post("/assemble-consensus", response_model=dict)
 async def assemble_consensus(
+    request: Request,
     background_tasks: BackgroundTasks,
-    reference: UploadFile = File(...),
-    fastq: UploadFile = File(...),
-    output_dir: str = Form(...),
-    medaka_model: str = Form("r941_min_high_g360"),
 ) -> dict:
     """Mode 2: Assemble consensus from ONT reads.
 
@@ -333,6 +356,22 @@ async def assemble_consensus(
     3. Compare consensus.fasta vs reference
     4. Write consensus.fasta, BAM, BAI, result.json to output_dir
     """
+    form = await _parse_multipart_form(request)
+
+    reference = form.get("reference")
+    fastq = form.get("fastq")
+    output_dir = form.get("output_dir")
+    medaka_model = form.get("medaka_model") or "r941_min_high_g360"
+
+    if not isinstance(reference, UPLOAD_FILE_TYPES):
+        raise HTTPException(422, "Field 'reference' is required")
+    if not isinstance(fastq, UPLOAD_FILE_TYPES):
+        raise HTTPException(422, "Field 'fastq' is required")
+    if not isinstance(output_dir, str) or not output_dir.strip():
+        raise HTTPException(422, "Field 'output_dir' is required")
+    if not isinstance(medaka_model, str):
+        medaka_model = "r941_min_high_g360"
+
     # Validate output directory
     _validate_output_dir(output_dir)
 

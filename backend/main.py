@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.routers import annotate, annotations, compare, comparison, drive, features, sequences, verify
 
-app = FastAPI(title="Genomics Tool")
+app = FastAPI(title="ProkScope")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

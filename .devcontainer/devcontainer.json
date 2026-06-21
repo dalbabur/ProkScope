@@ -8,8 +8,8 @@
   "postCreateCommand": "sudo apt-get update && sudo apt-get install -y minimap2 samtools && pip install -r backend/requirements.txt && npm ci --prefix frontend --ignore-scripts",
   "forwardPorts": [8000, 5173],
   "portsAttributes": {
-    "8000": { "label": "API + App", "onAutoForward": "openBrowser" },
-    "5173": { "label": "Vite dev server", "onAutoForward": "silent" }
+    "8000": { "label": "API + App", "onAutoForward": "silent" },
+    "5173": { "label": "Vite dev server", "onAutoForward": "openBrowser" }
   },
   "remoteEnv": {
     "GOOGLE_CLIENT_ID": "${localEnv:GOOGLE_CLIENT_ID}",

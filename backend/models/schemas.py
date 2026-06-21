@@ -64,3 +64,31 @@ class DriveFile(BaseModel):
     mime_type: str
     modified_time: str
     size: str | None = None
+
+
+class JobStatus(BaseModel):
+    job_id: str
+    status: str  # "pending" | "running" | "done" | "error"
+    error: str | None = None
+
+
+class VariantRecord(BaseModel):
+    position: int
+    ref: str
+    alt: str
+    type: str
+    in_feature: str | None = None
+
+
+class IsolateResult(BaseModel):
+    name: str
+    bam_file: str | None = None
+    variants: list[VariantRecord] = Field(default_factory=list)
+
+
+class CompareResult(BaseModel):
+    job_id: str
+    reference_name: str
+    isolates: list[IsolateResult] = Field(default_factory=list)
+    feature_hits: list[Annotation] = Field(default_factory=list)
+    summary: dict = Field(default_factory=dict)

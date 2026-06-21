@@ -55,10 +55,6 @@ export function buildGoslingSpec(
     ? reference.sequence.split('').map((base, index) => ({ position: index + 1, base }))
     : [];
 
-  // Split annotations: feature DB hits (have a color field set) vs. standard annotations
-  const featureDbHits = annotations.filter((a) => a.color != null);
-  const standardAnnotations = annotations.filter((a) => a.color == null);
-
   const tracks: any[] = [
     {
       linkingId: 'genome-axis',

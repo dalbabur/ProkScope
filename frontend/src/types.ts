@@ -75,3 +75,34 @@ export type DriveFile = {
   modified_time: string;
   size?: string | null;
 };
+
+// --- New types for Compare and Annotate features ---
+
+export type JobStatus = {
+  job_id: string;
+  status: 'pending' | 'running' | 'done' | 'error';
+  error?: string | null;
+};
+
+export type VariantRecord = {
+  position: number;
+  ref: string;
+  alt: string;
+  type: 'SNP' | 'insertion' | 'deletion' | string;
+  in_feature?: string | null;
+};
+
+export type IsolateResult = {
+  name: string;
+  bam_file?: string | null;
+  variants: VariantRecord[];
+};
+
+export type CompareResult = {
+  job_id: string;
+  reference_name: string;
+  isolates: IsolateResult[];
+  feature_hits: Annotation[];
+  summary: Record<string, unknown>;
+};
+

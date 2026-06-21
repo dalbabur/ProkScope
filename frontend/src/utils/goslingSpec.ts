@@ -7,6 +7,9 @@ const FEATURE_COLORS: Record<string, string> = {
   gene: '#58a6ff'
 };
 
+const MAX_BASE_TEXT_POINTS = 20000;
+const MAX_ANNOTATIONS_FOR_VIEW = 50000;
+
 function isBatchResult(result: ComparisonResult | BatchComparisonResult | null): result is BatchComparisonResult {
   return Boolean(result && 'results' in result);
 }
@@ -17,7 +20,20 @@ export function buildGoslingSpec(
   comparisonResult: ComparisonResult | BatchComparisonResult | null
 ) {
   const reference = sequences[0];
-  const refLength = reference?.length ?? 0;
+  if (!reference) {
+    return {
+      title: 'Genome Viewer',
+      arrangement: 'vertical',
+      views: []
+    };
+  }
+
+  const refLength = Math.max(1, reference?.length ?? 1);
+  const domain = { chromosome: 'chr', interval: [1, refLength] as [number, number] };
+
+  const safeAnnotations = annotations
+    .filter((ann) => Number.isFinite(ann.start) && Number.isFinite(ann.end) && ann.end >= ann.start)
+    .slice(0, MAX_ANNOTATIONS_FOR_VIEW);
   const allMutations = comparisonResult
     ? isBatchResult(comparisonResult)
       ? comparisonResult.results.flatMap((item) => item.mutations)
@@ -26,12 +42,16 @@ export function buildGoslingSpec(
 
   const mutationBins = new Map<number, number>();
   for (const mutation of allMutations) {
+    if (!Number.isFinite(mutation.position) || mutation.position < 1) {
+      continue;
+    }
     const bin = Math.floor(mutation.position / 100) * 100;
     mutationBins.set(bin, (mutationBins.get(bin) || 0) + 1);
   }
 
   const mutationDensityData = [...mutationBins.entries()].map(([position, count]) => ({ position, count }));
-  const sequenceData = reference
+  const canRenderBaseLetters = refLength > 0 && refLength <= MAX_BASE_TEXT_POINTS;
+  const sequenceData = canRenderBaseLetters
     ? reference.sequence.split('').map((base, index) => ({ position: index + 1, base }))
     : [];
 
@@ -42,19 +62,8 @@ export function buildGoslingSpec(
   const tracks: any[] = [
     {
       linkingId: 'genome-axis',
-      data: { values: sequenceData, type: 'json' },
-      x: { field: 'position', type: 'genomic', axis: 'bottom', domain: { chromosome: 'chr', interval: [0, refLength] } },
-      mark: 'text',
-      text: { field: 'base', type: 'nominal' },
-      color: { value: '#e6edf3' },
-      style: { outline: 'none' },
-      width: 900,
-      height: 80
-    },
-    {
-      linkingId: 'genome-axis',
-      data: { values: standardAnnotations, type: 'json' },
-      x: { field: 'start', type: 'genomic', axis: 'none', domain: { chromosome: 'chr', interval: [0, refLength] } },
+      data: { values: safeAnnotations, type: 'json' },
+      x: { field: 'start', type: 'genomic', axis: 'none', domain },
       xe: { field: 'end', type: 'genomic' },
       y: { field: 'feature_type', type: 'nominal' },
       mark: 'rect',
@@ -75,7 +84,7 @@ export function buildGoslingSpec(
     {
       linkingId: 'genome-axis',
       data: { values: mutationDensityData, type: 'json' },
-      x: { field: 'position', type: 'genomic', axis: 'none', domain: { chromosome: 'chr', interval: [0, refLength] } },
+      x: { field: 'position', type: 'genomic', axis: 'none', domain },
       y: { field: 'count', type: 'quantitative', axis: 'none' },
       mark: 'line',
       color: { value: '#f85149' },
@@ -84,26 +93,17 @@ export function buildGoslingSpec(
     }
   ];
 
-  if (featureDbHits.length > 0) {
-    tracks.push({
+  if (canRenderBaseLetters) {
+    tracks.unshift({
       linkingId: 'genome-axis',
-      title: 'Feature DB Matches',
-      data: { values: featureDbHits, type: 'json' },
-      x: { field: 'start', type: 'genomic', axis: 'none', domain: { chromosome: 'chr', interval: [0, refLength] } },
-      xe: { field: 'end', type: 'genomic' },
-      row: { field: 'feature_type', type: 'nominal' },
-      mark: 'rect',
-      color: { field: 'color', type: 'nominal' },
-      tooltip: [
-        { field: 'name', type: 'nominal', alt: 'Name' },
-        { field: 'feature_type', type: 'nominal', alt: 'Type' },
-        { field: 'source', type: 'nominal', alt: 'Source Plasmid' },
-        { field: 'start', type: 'quantitative', alt: 'Start' },
-        { field: 'end', type: 'quantitative', alt: 'End' },
-        { field: 'strand', type: 'nominal', alt: 'Strand' }
-      ],
+      data: { values: sequenceData, type: 'json' },
+      x: { field: 'position', type: 'genomic', axis: 'bottom', domain },
+      mark: 'text',
+      text: { field: 'base', type: 'nominal' },
+      color: { value: '#e6edf3' },
+      style: { outline: 'none' },
       width: 900,
-      height: 50
+      height: 80
     });
   }
 
@@ -112,7 +112,7 @@ export function buildGoslingSpec(
       tracks.push({
         linkingId: 'genome-axis',
         data: { values: item.mutations.map((mutation) => ({ ...mutation, query_id: item.query_id })), type: 'json' },
-        x: { field: 'position', type: 'genomic', axis: 'none', domain: { chromosome: 'chr', interval: [0, refLength] } },
+        x: { field: 'position', type: 'genomic', axis: 'none', domain },
         y: { value: 1 },
         mark: 'point',
         color: {

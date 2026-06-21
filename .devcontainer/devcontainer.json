@@ -1,10 +1,11 @@
 {
   "name": "Genomics Tool",
-  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12-bookworm",
   "features": {
-    "ghcr.io/devcontainers/features/node:1": { "version": "20" }
+    "ghcr.io/devcontainers/features/node:1": { "version": "20" },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": { "version": "latest" }
   },
-  "postCreateCommand": "cd backend && pip install -r requirements.txt && cd ../frontend && npm ci",
+  "postCreateCommand": "pip install -r backend/requirements.txt && npm ci --prefix frontend --ignore-scripts",
   "forwardPorts": [8000, 5173],
   "portsAttributes": {
     "8000": { "label": "API + App", "onAutoForward": "openBrowser" },

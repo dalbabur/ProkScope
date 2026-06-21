@@ -6,16 +6,51 @@ import { useStore } from '../hooks/useStore';
 import type { DriveFile } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
-const supported = ['.fasta', '.fa', '.fna', '.fastq', '.fq', '.gb', '.gbk', '.gff', '.gff3', '.bed'];
+
+function getBackendOrigin() {
+  const configured = import.meta.env.VITE_BACKEND_ORIGIN;
+  if (configured) return configured;
+
+  if (typeof window === 'undefined') return 'http://localhost:8000';
+
+  const { protocol, host, origin } = window.location;
+  if (host.includes('-5173.')) {
+    return origin.replace('-5173.', '-8000.');
+  }
+
+  if (host.endsWith(':5173')) {
+    return `${protocol}//${host.replace(':5173', ':8000')}`;
+  }
+
+  if (host.startsWith('localhost:') || host.startsWith('127.0.0.1:')) {
+    return `${protocol}//${host.replace(/:\d+$/, ':8000')}`;
+  }
+
+  return origin;
+}
+
+const supported = ['.fasta', '.fa', '.fna', '.fastq', '.fq', '.gb', '.gbk', '.genbank', '.gff', '.gff3', '.bed'];
 
 export function DriveFilePicker() {
-  const { driveSessionToken, setDriveSessionToken, sequences, setSequences, annotations, setAnnotations } = useStore();
+  const { driveSessionToken, setDriveSessionToken, setSequences, setAnnotations, setError } = useStore();
   const [files, setFiles] = useState<DriveFile[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
 
   const fetchFiles = async (token: string) => {
-    const response = await axios.get<DriveFile[]>(`${API_BASE}/api/drive/files`, { params: { session_token: token } });
-    setFiles(response.data.filter((f) => supported.some((ext) => f.name.toLowerCase().endsWith(ext))));
+    try {
+      const response = await axios.get<DriveFile[]>(`${API_BASE}/api/drive/files`, { params: { session_token: token } });
+      setFiles(response.data.filter((f) => supported.some((ext) => f.name.toLowerCase().endsWith(ext))));
+    } catch (error) {
+      setFiles([]);
+      setSelected([]);
+      const message = axios.isAxiosError(error) ? String(error.response?.data?.detail || error.message) : (error as Error).message;
+      if (message.toLowerCase().includes('invalid or expired session token')) {
+        setDriveSessionToken(null);
+        setError('Drive session expired. Please connect Google Drive again.');
+        return;
+      }
+      setError(message);
+    }
   };
 
   useEffect(() => {
@@ -25,37 +60,69 @@ export function DriveFilePicker() {
   }, [driveSessionToken]);
 
   const connectDrive = async () => {
-    const redirect_uri = `${window.location.origin}/auth/callback`;
-    const urlRes = await axios.get<{ auth_url: string }>(`${API_BASE}/api/drive/auth-url`, { params: { redirect_uri } });
-    window.open(urlRes.data.auth_url, 'drive-auth', 'width=480,height=640');
+    try {
+      setError(null);
+      const redirect_uri = `${getBackendOrigin()}/auth/callback`;
+      const urlRes = await axios.get<{ auth_url: string }>(`${API_BASE}/api/drive/auth-url`, { params: { redirect_uri } });
+      window.open(urlRes.data.auth_url, 'drive-auth', 'width=480,height=640');
 
-    const listener = async (event: MessageEvent) => {
-      if (!event.data?.code) return;
-      const callbackRes = await axios.post<{ session_token: string }>(`${API_BASE}/api/drive/callback`, {
-        code: event.data.code,
-        redirect_uri
-      });
-      setDriveSessionToken(callbackRes.data.session_token);
-      window.removeEventListener('message', listener);
-    };
+      const listener = async (event: MessageEvent) => {
+        if (!event.data || typeof event.data !== 'object') return;
+        if (!('code' in event.data) && !('error' in event.data)) return;
 
-    window.addEventListener('message', listener);
+        try {
+          if (event.data.error) {
+            throw new Error(String(event.data.error));
+          }
+          if (!event.data.state) {
+            throw new Error('Missing OAuth state. Please retry Drive sign-in.');
+          }
+          const callbackRes = await axios.post<{ session_token: string }>(`${API_BASE}/api/drive/callback`, {
+            code: event.data.code,
+            redirect_uri,
+            state: event.data.state
+          });
+          setDriveSessionToken(callbackRes.data.session_token);
+        } catch (error) {
+          setError((error as Error).message);
+        } finally {
+          window.removeEventListener('message', listener);
+        }
+      };
+
+      window.addEventListener('message', listener);
+    } catch (error) {
+      setError((error as Error).message);
+    }
   };
 
   const loadSelected = async (mode: 'sequences' | 'annotations') => {
-    if (!driveSessionToken) return;
-    for (const fileId of selected) {
-      const file = files.find((item) => item.id === fileId);
-      if (!file) continue;
-      const lower = file.name.toLowerCase();
-      if (mode === 'sequences' && !['.gff', '.gff3', '.bed'].some((ext) => lower.endsWith(ext))) {
-        const loaded = await loadSequenceFromDrive(driveSessionToken, file.id, file.name);
-        setSequences([...sequences, ...loaded]);
+    if (!driveSessionToken) {
+      setError('Connect Google Drive first.');
+      return;
+    }
+    if (selected.length === 0) {
+      setError('Select at least one file to load.');
+      return;
+    }
+
+    setError(null);
+    try {
+      for (const fileId of selected) {
+        const file = files.find((item) => item.id === fileId);
+        if (!file) continue;
+        const lower = file.name.toLowerCase();
+        if (mode === 'sequences' && !['.gff', '.gff3', '.bed'].some((ext) => lower.endsWith(ext))) {
+          const loaded = await loadSequenceFromDrive(driveSessionToken, file.id, file.name);
+          setSequences((prev) => [...prev, ...loaded]);
+        }
+        if (mode === 'annotations' && ['.gff', '.gff3', '.bed', '.gb', '.gbk', '.genbank'].some((ext) => lower.endsWith(ext))) {
+          const loaded = await loadAnnotationFromDrive(driveSessionToken, file.id, file.name);
+          setAnnotations((prev) => [...prev, ...loaded]);
+        }
       }
-      if (mode === 'annotations' && ['.gff', '.gff3', '.bed', '.gb', '.gbk'].some((ext) => lower.endsWith(ext))) {
-        const loaded = await loadAnnotationFromDrive(driveSessionToken, file.id, file.name);
-        setAnnotations([...annotations, ...loaded]);
-      }
+    } catch (error) {
+      setError((error as Error).message);
     }
   };
 

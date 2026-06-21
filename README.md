@@ -8,17 +8,57 @@ Lightweight web app for bacterial genome sequence parsing, annotation overlay, a
 cp .env.example .env
 # Fill in GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET
 docker compose up --build
-# Open http://localhost:8000
+# Open http://localhost:5173 for the UI
+# Backend API remains on http://localhost:8000
 ```
 
-## Quick start (GitHub Codespaces)
+## Quick start (GitHub Codespaces, right after boot)
 
-1. Open repo in Codespaces
-2. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET as Codespaces secrets
-3. In two terminals:
-   Terminal 1: cd backend && uvicorn main:app --reload --port 8000
-   Terminal 2: cd frontend && npm run dev
-4. Codespaces will auto-forward port 8000 and open the browser
+Use one of the two flows below. Flow A is recommended if you want it to work immediately after opening the Codespace.
+
+### Flow A (recommended): run everything with Docker Compose
+
+1. Open this repository in Codespaces.
+2. Verify Docker is available:
+   ```bash
+   docker --version
+   ```
+   If you see "docker: command not found", rebuild the Codespace container once and retry.
+3. Create an env file:
+   ```bash
+   cp .env.example .env
+   ```
+4. Fill in GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env.
+5. Start the app:
+   ```bash
+   docker compose up --build
+   ```
+6. Open forwarded port 5173 for the UI.
+7. Use forwarded port 8000 for the backend API/docs.
+
+Notes:
+- This flow does not require installing Python packages in .venv.
+- The frontend runs as a Vite dev server on port 5173 and proxies API requests to the backend on port 8000.
+
+### Flow B (optional): run backend/frontend directly in the Codespace shell
+
+Use this only if you want live frontend dev server behavior.
+
+Dependencies are installed automatically when the Codespace boots (`postCreateCommand`).
+
+1. Start backend (terminal 1, from repo root):
+   ```bash
+   set -a; source .env; set +a
+   python -m uvicorn backend.main:app --reload --port 8000
+   ```
+2. Start frontend (terminal 2):
+   ```bash
+   npm run dev --prefix frontend -- --host 0.0.0.0 --strictPort
+   ```
+3. Open forwarded port 5173 for UI and 8000 for API/docs.
+
+Common pitfall:
+- If you see "No module named uvicorn", run `pip install -r backend/requirements.txt` and retry.
 
 ## Google Drive setup
 
@@ -28,6 +68,10 @@ docker compose up --build
 4. Credentials → OAuth 2.0 Client ID → Web application
 5. Add authorized redirect URI: http://localhost:8000/auth/callback (or your Codespaces URL)
 6. Copy Client ID and Secret into .env
+
+Note for Codespaces:
+- The Google OAuth redirect URI must be the public backend URL on port 8000, not `localhost`.
+- The frontend now auto-detects the backend origin from the current 5173 URL in Codespaces, but the OAuth client in Google still needs the matching 8000 redirect URI registered.
 
 ## Workflow
 

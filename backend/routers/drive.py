@@ -12,6 +12,7 @@ router = APIRouter()
 class CallbackBody(BaseModel):
     code: str
     redirect_uri: str
+    state: str
 
 
 @router.get("/auth-url")
@@ -25,7 +26,7 @@ def auth_url(redirect_uri: str = Query(...)) -> dict[str, str]:
 @router.post("/callback")
 def callback(body: CallbackBody) -> dict[str, str]:
     try:
-        return {"session_token": drive_client.exchange_code_for_session(body.code, body.redirect_uri)}
+        return {"session_token": drive_client.exchange_code_for_session(body.code, body.redirect_uri, body.state)}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

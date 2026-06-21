@@ -62,9 +62,13 @@ export function DriveFilePicker() {
           if (event.data.error) {
             throw new Error(String(event.data.error));
           }
+          if (!event.data.state) {
+            throw new Error('Missing OAuth state. Please retry Drive sign-in.');
+          }
           const callbackRes = await axios.post<{ session_token: string }>(`${API_BASE}/api/drive/callback`, {
             code: event.data.code,
-            redirect_uri
+            redirect_uri,
+            state: event.data.state
           });
           setDriveSessionToken(callbackRes.data.session_token);
         } catch (error) {

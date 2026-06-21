@@ -33,8 +33,8 @@ def root() -> dict[str, str]:
 
 
 @app.get("/auth/callback", response_class=HTMLResponse)
-def auth_callback(code: str | None = None, error: str | None = None) -> str:
-    message = {"code": code, "error": error or (None if code else "Missing OAuth code in callback URL.")}
+def auth_callback(code: str | None = None, state: str | None = None, error: str | None = None) -> str:
+    message = {"code": code, "state": state, "error": error or (None if code else "Missing OAuth code in callback URL.")}
     payload = json.dumps(message)
 
     return f"""

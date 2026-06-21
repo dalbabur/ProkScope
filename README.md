@@ -48,6 +48,7 @@ Dependencies are installed automatically when the Codespace boots (`postCreateCo
 
 1. Start backend (terminal 1, from repo root):
    ```bash
+   set -a; source .env; set +a
    python -m uvicorn backend.main:app --reload --port 8000
    ```
 2. Start frontend (terminal 2):

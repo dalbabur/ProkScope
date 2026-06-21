@@ -29,7 +29,7 @@ function getBackendOrigin() {
   return origin;
 }
 
-const supported = ['.fasta', '.fa', '.fna', '.fastq', '.fq', '.gb', '.gbk', '.gff', '.gff3', '.bed'];
+const supported = ['.fasta', '.fa', '.fna', '.fastq', '.fq', '.gb', '.gbk', '.genbank', '.gff', '.gff3', '.bed'];
 
 export function DriveFilePicker() {
   const { driveSessionToken, setDriveSessionToken, setSequences, setAnnotations, setError } = useStore();
@@ -37,8 +37,20 @@ export function DriveFilePicker() {
   const [selected, setSelected] = useState<string[]>([]);
 
   const fetchFiles = async (token: string) => {
-    const response = await axios.get<DriveFile[]>(`${API_BASE}/api/drive/files`, { params: { session_token: token } });
-    setFiles(response.data.filter((f) => supported.some((ext) => f.name.toLowerCase().endsWith(ext))));
+    try {
+      const response = await axios.get<DriveFile[]>(`${API_BASE}/api/drive/files`, { params: { session_token: token } });
+      setFiles(response.data.filter((f) => supported.some((ext) => f.name.toLowerCase().endsWith(ext))));
+    } catch (error) {
+      setFiles([]);
+      setSelected([]);
+      const message = axios.isAxiosError(error) ? String(error.response?.data?.detail || error.message) : (error as Error).message;
+      if (message.toLowerCase().includes('invalid or expired session token')) {
+        setDriveSessionToken(null);
+        setError('Drive session expired. Please connect Google Drive again.');
+        return;
+      }
+      setError(message);
+    }
   };
 
   useEffect(() => {
@@ -104,7 +116,7 @@ export function DriveFilePicker() {
           const loaded = await loadSequenceFromDrive(driveSessionToken, file.id, file.name);
           setSequences((prev) => [...prev, ...loaded]);
         }
-        if (mode === 'annotations' && ['.gff', '.gff3', '.bed', '.gb', '.gbk'].some((ext) => lower.endsWith(ext))) {
+        if (mode === 'annotations' && ['.gff', '.gff3', '.bed', '.gb', '.gbk', '.genbank'].some((ext) => lower.endsWith(ext))) {
           const loaded = await loadAnnotationFromDrive(driveSessionToken, file.id, file.name);
           setAnnotations((prev) => [...prev, ...loaded]);
         }

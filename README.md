@@ -11,14 +11,58 @@ docker compose up --build
 # Open http://localhost:8000
 ```
 
-## Quick start (GitHub Codespaces)
+## Quick start (GitHub Codespaces, right after boot)
 
-1. Open repo in Codespaces
-2. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET as Codespaces secrets
-3. In two terminals:
-   Terminal 1: python -m uvicorn backend.main:app --reload --port 8000
-   Terminal 2: cd frontend && npm run dev
-4. Codespaces will auto-forward port 8000 and open the browser
+Use one of the two flows below. Flow A is recommended if you want it to work immediately after opening the Codespace.
+
+### Flow A (recommended): run everything with Docker Compose
+
+1. Open this repository in Codespaces.
+2. Verify Docker is available:
+   ```bash
+   docker --version
+   ```
+   If you see "docker: command not found", rebuild the Codespace container once and retry.
+3. Create an env file:
+   ```bash
+   cp .env.example .env
+   ```
+4. Fill in GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env.
+5. Start the app:
+   ```bash
+   docker compose up --build
+   ```
+6. Open forwarded port 8000.
+
+Notes:
+- This flow does not require installing Python packages in .venv.
+- Frontend is built into backend/static during Docker build, so port 5173 is not needed.
+
+### Flow B (optional): run backend/frontend directly in the Codespace shell
+
+Use this only if you want live frontend dev server behavior.
+
+1. Create and activate a virtual environment:
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   ```
+2. Install backend dependencies:
+   ```bash
+   pip install -r backend/requirements.txt
+   ```
+3. Start backend (terminal 1, from repo root):
+   ```bash
+   python -m uvicorn backend.main:app --reload --port 8000
+   ```
+4. Start frontend (terminal 2):
+   ```bash
+   cd frontend && npm ci && npm run dev
+   ```
+5. Open forwarded port 5173 for UI and 8000 for API/docs.
+
+Common pitfall:
+- If you see "No module named uvicorn", you are running shell mode without installing backend requirements into the active .venv.
 
 ## Google Drive setup
 

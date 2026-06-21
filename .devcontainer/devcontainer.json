@@ -2,7 +2,8 @@
   "name": "Genomics Tool",
   "image": "mcr.microsoft.com/devcontainers/python:3.12",
   "features": {
-    "ghcr.io/devcontainers/features/node:1": { "version": "20" }
+    "ghcr.io/devcontainers/features/node:1": { "version": "20" },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": { "version": "latest" }
   },
   "postCreateCommand": "cd backend && pip install -r requirements.txt && cd ../frontend && npm ci",
   "forwardPorts": [8000, 5173],

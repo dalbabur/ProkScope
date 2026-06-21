@@ -50,3 +50,48 @@ export async function getResult(jobId: string): Promise<VerifyResult> {
 export function getFileUrl(jobId: string, filename: string): string {
   return `${API_BASE}/api/verify/files/${jobId}/${filename}`;
 }
+
+export async function suggestOutputDir(): Promise<string> {
+  const response = await axios.get(`${API_BASE}/api/verify/suggest-output-dir`);
+  return response.data.output_dir;
+}
+
+export async function compareAssemblyDrive(
+  sessionToken: string,
+  referenceFileId: string,
+  referenceFileName: string,
+  assemblyFileId: string,
+  assemblyFileName: string,
+  outputDir: string,
+): Promise<string> {
+  const response = await axios.post(`${API_BASE}/api/verify/compare-assembly-drive`, {
+    session_token: sessionToken,
+    reference_file_id: referenceFileId,
+    reference_file_name: referenceFileName,
+    assembly_file_id: assemblyFileId,
+    assembly_file_name: assemblyFileName,
+    output_dir: outputDir,
+  });
+  return response.data.job_id;
+}
+
+export async function assembleConsensusDrive(
+  sessionToken: string,
+  referenceFileId: string,
+  referenceFileName: string,
+  fastqFileId: string,
+  fastqFileName: string,
+  outputDir: string,
+  medakaModel: string = 'r941_min_high_g360',
+): Promise<string> {
+  const response = await axios.post(`${API_BASE}/api/verify/assemble-consensus-drive`, {
+    session_token: sessionToken,
+    reference_file_id: referenceFileId,
+    reference_file_name: referenceFileName,
+    fastq_file_id: fastqFileId,
+    fastq_file_name: fastqFileName,
+    output_dir: outputDir,
+    medaka_model: medakaModel,
+  });
+  return response.data.job_id;
+}

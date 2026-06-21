@@ -6,7 +6,29 @@ import { useStore } from '../hooks/useStore';
 import type { DriveFile } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
-const BACKEND_ORIGIN = import.meta.env.VITE_BACKEND_ORIGIN || 'http://localhost:8000';
+
+function getBackendOrigin() {
+  const configured = import.meta.env.VITE_BACKEND_ORIGIN;
+  if (configured) return configured;
+
+  if (typeof window === 'undefined') return 'http://localhost:8000';
+
+  const { protocol, host, origin } = window.location;
+  if (host.includes('-5173.')) {
+    return origin.replace('-5173.', '-8000.');
+  }
+
+  if (host.endsWith(':5173')) {
+    return `${protocol}//${host.replace(':5173', ':8000')}`;
+  }
+
+  if (host.startsWith('localhost:') || host.startsWith('127.0.0.1:')) {
+    return `${protocol}//${host.replace(/:\d+$/, ':8000')}`;
+  }
+
+  return origin;
+}
+
 const supported = ['.fasta', '.fa', '.fna', '.fastq', '.fq', '.gb', '.gbk', '.gff', '.gff3', '.bed'];
 
 export function DriveFilePicker() {
@@ -28,7 +50,7 @@ export function DriveFilePicker() {
   const connectDrive = async () => {
     try {
       setError(null);
-      const redirect_uri = `${BACKEND_ORIGIN}/auth/callback`;
+      const redirect_uri = `${getBackendOrigin()}/auth/callback`;
       const urlRes = await axios.get<{ auth_url: string }>(`${API_BASE}/api/drive/auth-url`, { params: { redirect_uri } });
       window.open(urlRes.data.auth_url, 'drive-auth', 'width=480,height=640');
 

@@ -39,6 +39,12 @@ type WorkflowMode = 'compare' | 'assemble';
 type InputSource = 'local' | 'drive';
 
 const MEDAKA_MODELS = [
+  '',                              // auto-detect (recommended for medaka 2.x)
+  // Current R10.4.1 models (medaka 2.x)
+  'dna_r10.4.1_e8.2_400bps_sup@v5.0.0',
+  'dna_r10.4.1_e8.2_400bps_hac@v5.0.0',
+  'dna_r10.4.1_e8.2_260bps_sup@v5.0.0',
+  // Legacy R9.4.1 models (still accepted by medaka 2.x)
   'r941_min_high_g360',
   'r941_min_fast_g303',
   'r941_prom_high_g360',
@@ -548,7 +554,9 @@ export function VerifyAssembleTab() {
                       width: '100%',
                     }}
                   >
-                    {MEDAKA_MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
+                    {MEDAKA_MODELS.map((m) => (
+                    <option key={m} value={m}>{m === '' ? 'Auto-detect (recommended)' : m}</option>
+                  ))}
                   </select>
                 </div>
               </>

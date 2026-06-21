@@ -1,64 +1,73 @@
-import { useMemo, useState } from 'react';
-import { AnnotationTrack } from './components/AnnotationTrack';
-import { ComparisonView } from './components/ComparisonView';
-import { DriveFilePicker } from './components/DriveFilePicker';
-import { FeatureLibrary } from './components/FeatureLibrary';
-import { GenomeViewer } from './components/GenomeViewer';
-import { MutationTable } from './components/MutationTable';
-import { SequenceUploader } from './components/SequenceUploader';
-import { useStore } from './hooks/useStore';
-import { buildGoslingSpec } from './utils/goslingSpec';
-
-function mutationsFromResult(result: any) {
-  if (!result) return [];
-  if ('results' in result) {
-    return result.results.flatMap((item: any) => item.mutations.map((mutation: any) => ({ ...mutation, affectedSequences: [item.query_id] })));
-  }
-  return result.mutations;
-}
+import * as Tabs from '@radix-ui/react-tabs';
+import { AnnotateTab } from './components/AnnotateTab';
+import { CompareTab } from './components/CompareTab';
+import { VerifyAssembleTab } from './components/VerifyAssembleTab';
 
 export default function App() {
-  const { sequences, annotations, comparisonResult, hiddenFeatureTypes, toggleFeatureType, error } = useStore();
-  const [selectedRange, setSelectedRange] = useState<{ start: number; end: number } | null>(null);
-
-  const filteredAnnotations = useMemo(
-    () => annotations.filter((ann) => !hiddenFeatureTypes.includes(ann.feature_type || 'unknown')),
-    [annotations, hiddenFeatureTypes]
-  );
-  const spec = useMemo(() => buildGoslingSpec(sequences, filteredAnnotations, comparisonResult), [sequences, filteredAnnotations, comparisonResult]);
-
-  const allMutations = useMemo(() => {
-    const base = mutationsFromResult(comparisonResult);
-    if (!selectedRange) return base;
-    return base.filter((item: any) => item.position >= selectedRange.start && item.position <= selectedRange.end);
-  }, [comparisonResult, selectedRange]);
-
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', height: '100vh', background: '#0d1117', color: '#e6edf3' }}>
-      <aside style={{ borderRight: '1px solid #30363d', padding: 10, overflow: 'auto' }}>
-        <h3>Google Drive</h3>
-        <DriveFilePicker />
-        <h3>Upload</h3>
-        <SequenceUploader />
-        <FeatureLibrary />
-      </aside>
-      <main style={{ padding: 12, display: 'grid', gridTemplateRows: '60% 40%', gap: 12 }}>
-        <section>
-          <GenomeViewer spec={spec} onRangeSelect={setSelectedRange} />
-          <AnnotationTrack annotations={annotations} hiddenFeatureTypes={hiddenFeatureTypes} onToggle={toggleFeatureType} />
-        </section>
-        <section style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <div>
-            <h3>Mutations</h3>
-            <MutationTable mutations={allMutations} />
-          </div>
-          <div>
-            <h3>Alignment</h3>
-            <ComparisonView result={comparisonResult} />
-          </div>
-        </section>
-        {error && <div style={{ color: '#f85149' }}>{error}</div>}
-      </main>
+    <div style={{ height: '100vh', background: '#0d1117', color: '#e6edf3', display: 'flex', flexDirection: 'column' }}>
+      <Tabs.Root defaultValue="verify" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+        {/* Tab bar */}
+        <Tabs.List
+          style={{
+            display: 'flex',
+            borderBottom: '1px solid #30363d',
+            background: '#0d1117',
+            padding: '0 12px',
+            flexShrink: 0,
+          }}
+        >
+          {(['verify', 'annotate', 'compare'] as const).map((tab) => (
+            <Tabs.Trigger key={tab} value={tab} asChild>
+              {/* We render a button and style it based on the active state via CSS data attributes */}
+              <button
+                style={{
+                  padding: '10px 20px',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  background: 'transparent',
+                  color: '#8b949e',
+                  border: 'none',
+                  borderBottom: '2px solid transparent',
+                  cursor: 'pointer',
+                  outline: 'none',
+                  transition: 'color 0.15s, border-color 0.15s',
+                }}
+                data-tab={tab}
+              >
+                {tab === 'verify' && 'Verify / Assemble'}
+                {tab === 'annotate' && 'Annotate'}
+                {tab === 'compare' && 'Compare'}
+              </button>
+            </Tabs.Trigger>
+          ))}
+        </Tabs.List>
+
+        {/* Tab contents */}
+        <Tabs.Content value="verify" style={{ flex: 1, overflow: 'hidden' }}>
+          <VerifyAssembleTab />
+        </Tabs.Content>
+
+        <Tabs.Content value="annotate" style={{ flex: 1, overflow: 'hidden' }}>
+          <AnnotateTab />
+        </Tabs.Content>
+
+        <Tabs.Content value="compare" style={{ flex: 1, overflow: 'hidden' }}>
+          <CompareTab />
+        </Tabs.Content>
+      </Tabs.Root>
+
+      <style>{`
+        [data-radix-collection-item][data-state="active"] {
+          color: #e6edf3 !important;
+          border-bottom-color: #388bfd !important;
+          font-weight: 600 !important;
+        }
+        [data-radix-collection-item]:hover {
+          color: #e6edf3 !important;
+        }
+      `}</style>
     </div>
   );
 }
+

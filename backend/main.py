@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.routers import annotations, comparison, drive, features, sequences
+from backend.routers import annotate, annotations, compare, comparison, drive, features, sequences
 
 app = FastAPI(title="Genomics Tool")
 app.add_middleware(
@@ -56,7 +56,9 @@ def auth_callback(code: str | None = None, state: str | None = None, error: str 
 
 app.include_router(sequences.router, prefix="/api/sequences", tags=["sequences"])
 app.include_router(annotations.router, prefix="/api/annotations", tags=["annotations"])
+app.include_router(annotate.router, prefix="/api/annotate", tags=["annotate"])
 app.include_router(comparison.router, prefix="/api/comparison", tags=["comparison"])
+app.include_router(compare.router, prefix="/api/compare", tags=["compare"])
 app.include_router(drive.router, prefix="/api/drive", tags=["drive"])
 app.include_router(features.router, prefix="/api/features", tags=["features"])
 

@@ -1,1 +1,1 @@
-__all__ = ["sequences", "annotations", "comparison", "drive"]
+__all__ = ["annotate", "annotations", "compare", "comparison", "sequences", "drive", "features"]

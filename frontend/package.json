@@ -9,13 +9,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "gosling.js": "^1.0.7",
     "@radix-ui/react-dialog": "^1.1.6",
     "@radix-ui/react-select": "^1.2.2",
     "@radix-ui/react-tabs": "^1.1.2",
     "axios": "^1.6.8",
     "clsx": "^2.1.1",
+    "gosling.js": "^1.0.7",
     "higlass": "^1.13.0",
+    "igv": "^3.8.3",
     "lucide-react": "^0.383.0",
     "pixi.js": "^6.5.10",
     "react": "^18.3.1",

@@ -32,6 +32,7 @@ class Annotation(BaseModel):
     strand: str | None = None
     source: str | None = None
     feature_type: str | None = None
+    color: str | None = None
 
 
 class Mutation(BaseModel):

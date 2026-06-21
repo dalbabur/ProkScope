@@ -27,6 +27,21 @@ export type Annotation = {
   strand?: string | null;
   source?: string | null;
   feature_type?: string | null;
+  color?: string | null;
+};
+
+export type FeatureRecord = {
+  id: string;
+  label: string;
+  type: string;
+  length: number;
+  strand: string;
+  color: string;
+  sequence: string;
+  description: string;
+  source_plasmid: string;
+  source_file: string;
+  tags: string[];
 };
 
 export type Mutation = {

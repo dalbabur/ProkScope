@@ -15,7 +15,7 @@ from backend.models.schemas import DriveFile
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 SESSION_STORE: dict[str, object] = {}
 OAUTH_PENDING: dict[str, dict[str, str]] = {}
-SUPPORTED_EXTENSIONS = [".fasta", ".fa", ".fna", ".fastq", ".fq", ".gb", ".gbk", ".genbank", ".gff", ".gff3", ".bed"]
+SUPPORTED_EXTENSIONS = [".fasta", ".fa", ".fna", ".fastq", ".fastq.gz", ".fq", ".fq.gz", ".gb", ".gbk", ".genbank", ".gff", ".gff3", ".bed"]
 
 
 def _format_drive_http_error(exc: HttpError) -> str:

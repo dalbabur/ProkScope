@@ -121,9 +121,10 @@ export type VerifyResult = {
   quality_metrics: QualityMetrics;
   mutations: Mutation[];
   alignment: string;
+  aligned_ref: string;
+  aligned_query: string;
   consensus_fasta_path?: string | null;
   bam_file?: string | null;
   reference_name: string;
   assembly_or_reads_name: string;
 };
-

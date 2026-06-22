@@ -6,6 +6,9 @@ services:
     env_file: .env
     volumes:
       - ./data:/app/data
+      - prokscope_output:/prokscope_output
+    environment:
+      PROKSCOPE_OUTPUT_DIR: /prokscope_output
 
   frontend:
     image: node:20-alpine
@@ -23,3 +26,4 @@ services:
 
 volumes:
   frontend_node_modules:
+  prokscope_output:

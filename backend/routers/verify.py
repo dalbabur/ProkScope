@@ -10,6 +10,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from backend.models.schemas import (
@@ -20,6 +21,12 @@ from backend.models.schemas import (
     VerifyResult,
 )
 from backend.services import aligner, parser, variant_caller
+from backend.services import drive_client
+# Alignment strings are capped before JSON serialisation to avoid sending
+# megabytes of sequence over the wire and freezing the browser.
+_ALIGNMENT_PREVIEW_CAP = 500_000  # characters (~500 kbp displayed max)
+
+
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -78,25 +85,22 @@ def _run_compare_assembly_job(
         # Align sequences
         result = aligner.align_pair(ref_records[0].sequence, asm_records[0].sequence)
 
-        # Convert mutations to Mutation objects
-        mutations = [
-            Mutation(
-                position=m["position"],
-                ref=m["ref"],
-                alt=m["alt"],
-                type=m["type"],
-            )
-            for m in result["mutations"]
-        ]
+        # result is a ComparisonResult Pydantic object — use attribute access
+        mutations = result.mutations  # already list[Mutation]
 
         # Calculate quality metrics
         metrics = QualityMetrics(
-            identity_percent=result["identity"],
+            identity_percent=result.identity,
             total_mutations=len(mutations),
             snps=sum(1 for m in mutations if m.type == "SNP"),
             insertions=sum(1 for m in mutations if m.type == "insertion"),
             deletions=sum(1 for m in mutations if m.type == "deletion"),
         )
+
+        # Cap alignment strings to avoid serialising megabytes into JSON
+        aligned_ref   = result.aligned_ref[:_ALIGNMENT_PREVIEW_CAP]
+        aligned_query = result.aligned_query[:_ALIGNMENT_PREVIEW_CAP]
+        alignment_preview = f"Ref:   {aligned_ref[:120]}\nQuery: {aligned_query[:120]}"
 
         # Create result
         verify_result = VerifyResult(
@@ -104,7 +108,9 @@ def _run_compare_assembly_job(
             mode="compare",
             quality_metrics=metrics,
             mutations=mutations,
-            alignment=result["alignment"],
+            alignment=alignment_preview,
+            aligned_ref=aligned_ref,
+            aligned_query=aligned_query,
             reference_name=ref_records[0].id,
             assembly_or_reads_name=asm_records[0].id,
         )
@@ -169,23 +175,24 @@ def _run_assemble_consensus_job(
     fastq_path: str,
     output_dir: str,
     medaka_model: str,
+    batch_size: int = 10,
 ) -> None:
     """Background worker for Mode 2: Assemble consensus from ONT reads."""
     _jobs[job_id] = JobStatus(job_id=job_id, status="running")
-    temp_work_dir = None
 
     try:
-        # Create temporary working directory
-        temp_work_dir = os.path.join(tempfile.gettempdir(), f"prokscope_{job_id}")
-        os.makedirs(temp_work_dir, exist_ok=True)
+        # Work directly in output_dir so logs, BAM, and consensus persist even on failure.
+        # This also makes the workflow resumable: checkpoints survive between runs.
+        os.makedirs(output_dir, exist_ok=True)
 
         # Run medaka consensus assembly
         logger.info("Starting medaka consensus assembly for job %s", job_id)
         consensus_fasta, bam_path = variant_caller.assemble_consensus_medaka(
             fastq_path=fastq_path,
             reference_path=reference_path,
-            output_dir=temp_work_dir,
+            output_dir=output_dir,
             medaka_model=medaka_model,
+            batch_size=batch_size,
         )
 
         # Parse reference and consensus sequences
@@ -205,23 +212,15 @@ def _run_assemble_consensus_job(
         logger.info("Comparing consensus vs reference for job %s", job_id)
         result = aligner.align_pair(ref_records[0].sequence, consensus_records[0].sequence)
 
-        # Convert mutations to Mutation objects
-        mutations = [
-            Mutation(
-                position=m["position"],
-                ref=m["ref"],
-                alt=m["alt"],
-                type=m["type"],
-            )
-            for m in result["mutations"]
-        ]
+        # result is a ComparisonResult Pydantic object — use attribute access
+        mutations = result.mutations  # already list[Mutation]
 
         # Calculate coverage
         coverage = _calculate_coverage(bam_path)
 
         # Calculate quality metrics
         metrics = QualityMetrics(
-            identity_percent=result["identity"],
+            identity_percent=result.identity,
             coverage_percent=coverage,
             total_mutations=len(mutations),
             snps=sum(1 for m in mutations if m.type == "SNP"),
@@ -229,15 +228,16 @@ def _run_assemble_consensus_job(
             deletions=sum(1 for m in mutations if m.type == "deletion"),
         )
 
-        # Copy output files to user's output directory
-        final_consensus = os.path.join(output_dir, "consensus.fasta")
-        final_bam = os.path.join(output_dir, "aligned.bam")
-        final_bai = os.path.join(output_dir, "aligned.bam.bai")
+        # Files are already in output_dir (we work there directly now).
+        # Just resolve the canonical paths for the result record.
+        final_consensus = os.path.realpath(consensus_fasta)
+        final_bam       = os.path.realpath(bam_path)
+        final_bai       = final_bam + ".bai"
 
-        shutil.copy2(consensus_fasta, final_consensus)
-        shutil.copy2(bam_path, final_bam)
-        if os.path.exists(bam_path + ".bai"):
-            shutil.copy2(bam_path + ".bai", final_bai)
+        # Cap alignment strings to avoid serialising megabytes into JSON
+        aligned_ref   = result.aligned_ref[:_ALIGNMENT_PREVIEW_CAP]
+        aligned_query = result.aligned_query[:_ALIGNMENT_PREVIEW_CAP]
+        alignment_preview = f"Ref:   {aligned_ref[:120]}\nQuery: {aligned_query[:120]}"
 
         # Create result
         verify_result = VerifyResult(
@@ -245,7 +245,9 @@ def _run_assemble_consensus_job(
             mode="assemble",
             quality_metrics=metrics,
             mutations=mutations,
-            alignment=result["alignment"],
+            alignment=alignment_preview,
+            aligned_ref=aligned_ref,
+            aligned_query=aligned_query,
             consensus_fasta_path=final_consensus,
             bam_file=os.path.basename(final_bam),
             reference_name=ref_records[0].id,
@@ -264,16 +266,10 @@ def _run_assemble_consensus_job(
         logger.exception("Assemble consensus job %s failed", job_id)
         _jobs[job_id] = JobStatus(job_id=job_id, status="error", error=str(exc))
     finally:
-        # Clean up temporary input files and working directory
-        try:
-            os.unlink(reference_path)
-            os.unlink(fastq_path)
-        except OSError:
-            pass
-
-        if temp_work_dir and os.path.exists(temp_work_dir):
+        # Clean up temporary input files (uploaded to /tmp by the router)
+        for path in (reference_path, fastq_path):
             try:
-                shutil.rmtree(temp_work_dir)
+                os.unlink(path)
             except OSError:
                 pass
 
@@ -362,6 +358,10 @@ async def assemble_consensus(
     fastq = form.get("fastq")
     output_dir = form.get("output_dir")
     medaka_model = form.get("medaka_model") or "r941_min_high_g360"
+    try:
+        batch_size = int(form.get("batch_size") or 10)
+    except (ValueError, TypeError):
+        batch_size = 10
 
     if not isinstance(reference, UPLOAD_FILE_TYPES):
         raise HTTPException(422, "Field 'reference' is required")
@@ -400,6 +400,7 @@ async def assemble_consensus(
         fastq_path,
         output_dir,
         medaka_model,
+        batch_size,
     )
 
     return {"job_id": job_id}
@@ -478,3 +479,148 @@ async def serve_file(request: Request, job_id: str, filename: str) -> FileRespon
         media_type=media_type,
         filename=filename,
     )
+
+
+# ---------------------------------------------------------------------------
+# Output directory helpers
+# ---------------------------------------------------------------------------
+
+def _find_writable_output_dir() -> str:
+    """Return a sensible writable default output directory.
+
+    Priority:
+    1. $PROKSCOPE_OUTPUT_DIR  – set by Docker Compose to /prokscope_output
+    2. /workspaces/<repo>     – GitHub Codespaces workspace
+    3. /app/data              – Docker-compose mounted ./data volume
+    4. ~/prokscope_out        – home directory fallback
+    5. /tmp/prokscope_out     – universal last resort
+    """
+    env_dir = os.getenv("PROKSCOPE_OUTPUT_DIR")
+    candidates = [
+        env_dir,
+        # Codespaces mounts the repo under /workspaces
+        next(
+            (str(p) for p in Path("/workspaces").iterdir() if p.is_dir()),
+            None,
+        ) if Path("/workspaces").exists() else None,
+        "/app/data",
+        str(Path.home() / "prokscope_out"),
+        "/tmp/prokscope_out",
+    ]
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        try:
+            Path(candidate).mkdir(parents=True, exist_ok=True)
+            if os.access(candidate, os.W_OK):
+                return candidate
+        except OSError:
+            continue
+    raise RuntimeError("No writable output directory found")
+
+
+@router.get("/suggest-output-dir")
+def suggest_output_dir() -> dict[str, str]:
+    """Return a suggested writable output directory for the current environment."""
+    try:
+        return {"output_dir": _find_writable_output_dir()}
+    except Exception as exc:
+        raise HTTPException(500, str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Drive-aware verify endpoints
+# ---------------------------------------------------------------------------
+
+class DriveVerifyCompareBody(BaseModel):
+    session_token: str
+    reference_file_id: str
+    reference_file_name: str
+    assembly_file_id: str
+    assembly_file_name: str
+    output_dir: str
+
+
+class DriveVerifyAssembleBody(BaseModel):
+    session_token: str
+    reference_file_id: str
+    reference_file_name: str
+    fastq_file_id: str
+    fastq_file_name: str
+    output_dir: str
+    medaka_model: str = "r941_min_high_g360"
+    batch_size: int = 10
+
+
+def _download_drive_file_to_temp(session_token: str, file_id: str, filename: str, temp_dir: str) -> str:
+    """Download a Google Drive file into temp_dir and return the local path."""
+    try:
+        content = drive_client.download_file(session_token, file_id)
+    except Exception as exc:
+        raise HTTPException(400, f"Failed to download '{filename}' from Google Drive: {exc}") from exc
+    dest = os.path.join(temp_dir, filename)
+    with open(dest, "wb") as fh:
+        fh.write(content)
+    return dest
+
+
+@router.post("/compare-assembly-drive", response_model=dict)
+async def compare_assembly_drive(
+    body: DriveVerifyCompareBody,
+    background_tasks: BackgroundTasks,
+) -> dict:
+    """Mode 1 (Drive variant): download reference + assembly from Google Drive, then compare."""
+    _validate_output_dir(body.output_dir)
+    job_id = str(uuid.uuid4())
+    temp_dir = tempfile.mkdtemp(prefix=f"prokscope_verify_{job_id}_")
+
+    reference_path = _download_drive_file_to_temp(
+        body.session_token, body.reference_file_id, body.reference_file_name, temp_dir
+    )
+    assembly_path = _download_drive_file_to_temp(
+        body.session_token, body.assembly_file_id, body.assembly_file_name, temp_dir
+    )
+
+    _jobs[job_id] = JobStatus(job_id=job_id, status="pending")
+    _job_metadata[job_id] = {"output_dir": body.output_dir, "mode": "compare"}
+
+    background_tasks.add_task(
+        _run_compare_assembly_job,
+        job_id,
+        reference_path,
+        assembly_path,
+        body.output_dir,
+    )
+    return {"job_id": job_id}
+
+
+@router.post("/assemble-consensus-drive", response_model=dict)
+async def assemble_consensus_drive(
+    body: DriveVerifyAssembleBody,
+    background_tasks: BackgroundTasks,
+) -> dict:
+    """Mode 2 (Drive variant): download reference + FASTQ from Google Drive, then assemble."""
+    _validate_output_dir(body.output_dir)
+    job_id = str(uuid.uuid4())
+    temp_dir = tempfile.mkdtemp(prefix=f"prokscope_verify_{job_id}_")
+
+    reference_path = _download_drive_file_to_temp(
+        body.session_token, body.reference_file_id, body.reference_file_name, temp_dir
+    )
+    fastq_path = _download_drive_file_to_temp(
+        body.session_token, body.fastq_file_id, body.fastq_file_name, temp_dir
+    )
+
+    _jobs[job_id] = JobStatus(job_id=job_id, status="pending")
+    _job_metadata[job_id] = {"output_dir": body.output_dir, "mode": "assemble"}
+
+    background_tasks.add_task(
+        _run_assemble_consensus_job,
+        job_id,
+        reference_path,
+        fastq_path,
+        body.output_dir,
+        body.medaka_model,
+        body.batch_size,
+    )
+    return {"job_id": job_id}

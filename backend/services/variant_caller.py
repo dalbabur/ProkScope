@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -11,15 +12,95 @@ from backend.models.schemas import Annotation, IsolateResult, VariantRecord
 logger = logging.getLogger(__name__)
 
 
+# ─── Checkpoint helpers ───────────────────────────────────────────────────────
+# Each step writes a small sentinel file (.done_<step>) when it completes.
+# On resume (e.g. after a crash or timeout), completed steps are skipped.
+
+def _sentinel(work_dir: Path, step: str) -> Path:
+    return work_dir / f".done_{step}"
+
+def _is_done(work_dir: Path, step: str) -> bool:
+    return _sentinel(work_dir, step).exists()
+
+def _mark_done(work_dir: Path, step: str) -> None:
+    _sentinel(work_dir, step).touch()
+
+def _clear_done(work_dir: Path, step: str) -> None:
+    """Remove a checkpoint so the step will re-run (used when cleaning up partial output)."""
+    try:
+        _sentinel(work_dir, step).unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _run(cmd: list[str], step: str) -> subprocess.CompletedProcess:
+    """Run a subprocess; raise RuntimeError with full output on non-zero exit."""
+    logger.info("Step [%s]: %s", step, " ".join(cmd))
+    proc = subprocess.run(cmd, capture_output=True)
+    stdout = proc.stdout.decode(errors="replace").strip()
+    stderr = proc.stderr.decode(errors="replace").strip()
+    if stdout:
+        logger.info("Step [%s] stdout:\n%s", step, stdout)
+    if stderr:
+        logger.info("Step [%s] stderr:\n%s", step, stderr)
+    if proc.returncode != 0:
+        combined = f"STDOUT:\n{stdout}\n\nSTDERR:\n{stderr}".strip()
+        logger.error("Step [%s] failed (exit %d)", step, proc.returncode)
+        raise RuntimeError(f"[{step}] failed (exit {proc.returncode}):\n{combined}")
+    return proc
+
+
+def _run_shell(cmd: list[str], step: str, work_dir: Path) -> None:
+    """Run a command via the shell, streaming stdout+stderr line-by-line to the log.
+
+    Unlike _run(), this does NOT use capture_output — output is streamed in
+    real time so long-running tools like medaka_consensus don't appear silent,
+    and so the full output is visible even if the process is killed mid-run.
+    A log file is also written to work_dir for post-mortem inspection.
+    """
+    import select
+    import threading
+
+    log_path = work_dir / f"{step}.log"
+    logger.info("Step [%s]: %s  (log: %s)", step, " ".join(cmd), log_path)
+
+    with open(log_path, "w") as log_fh:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # merge stderr into stdout
+            text=True,
+            bufsize=1,
+        )
+
+        for line in proc.stdout:
+            line = line.rstrip()
+            logger.info("[%s] %s", step, line)
+            log_fh.write(line + "\n")
+            log_fh.flush()
+
+        proc.wait()
+
+    if proc.returncode != 0:
+        log_contents = log_path.read_text(errors="replace")
+        raise RuntimeError(
+            f"[{step}] failed (exit {proc.returncode}). "
+            f"Full log at {log_path}:\n{log_contents}"
+        )
+
+
 def _which_required(tool: str) -> str:
     path = shutil.which(tool)
     if not path:
-        raise RuntimeError(f"{tool!r} not found in PATH — please install it")
+        raise RuntimeError(
+            f"'{tool}' not found in PATH. "
+            "Run install_tools.sh or rebuild the Docker container."
+        )
     return path
 
 
 def _parse_vcf(vcf_path: str) -> list[VariantRecord]:
-    """Parse a VCF file into a list of VariantRecord objects."""
+    """Parse a VCF file into VariantRecord objects."""
     variants: list[VariantRecord] = []
     try:
         with open(vcf_path, encoding="utf-8") as fh:
@@ -34,9 +115,8 @@ def _parse_vcf(vcf_path: str) -> list[VariantRecord]:
                     pos = int(pos_str)
                 except ValueError:
                     continue
-                alts = alt.split(",")
-                for a in alts:
-                    if a == ".":
+                for a in alt.split(","):
+                    if a in (".", "*"):
                         continue
                     if len(ref) == len(a) == 1:
                         vtype = "SNP"
@@ -50,6 +130,182 @@ def _parse_vcf(vcf_path: str) -> list[VariantRecord]:
     return variants
 
 
+# ─── Step A: minimap2 → sorted BAM (shared, for IGV visualisation) ────────────
+
+def _build_sorted_bam(
+    fastq_path: str,
+    reference_path: str,
+    work_dir: Path,
+    bam_name: str = "aligned.bam",
+) -> str:
+    """
+    Align reads to reference with minimap2, sort and index with samtools.
+
+    Checkpointed: skipped automatically if the BAM + BAI already exist.
+    Returns the path to the sorted BAM.
+    """
+    sorted_bam = str(work_dir / bam_name)
+    bai_file   = sorted_bam + ".bai"
+    step_key   = f"bam_{bam_name}"
+
+    if _is_done(work_dir, step_key) and Path(sorted_bam).exists() and Path(bai_file).exists():
+        logger.info("Checkpoint: sorted BAM exists at %s — skipping alignment", sorted_bam)
+        return sorted_bam
+
+    minimap2 = _which_required("minimap2")
+    samtools = _which_required("samtools")
+
+    # Clean up any partial outputs from a previous failed run
+    sam_file     = str(work_dir / "_tmp_aligned.sam")
+    unsorted_bam = str(work_dir / "_tmp_unsorted.bam")
+    for path in (sam_file, unsorted_bam, sorted_bam, bai_file):
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+    _clear_done(work_dir, step_key)
+
+    _run([minimap2, "-ax", "map-ont", reference_path, fastq_path, "-o", sam_file], "minimap2")
+    _run([samtools, "view", "-bS", sam_file, "-o", unsorted_bam], "samtools-view")
+    _run([samtools, "sort", unsorted_bam, "-o", sorted_bam], "samtools-sort")
+    _run([samtools, "index", sorted_bam], "samtools-index")
+
+    for path in (sam_file, unsorted_bam):
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+    _mark_done(work_dir, step_key)
+    return sorted_bam
+
+
+# ─── assemble_consensus_medaka ────────────────────────────────────────────────
+
+def assemble_consensus_medaka(
+    fastq_path: str,
+    reference_path: str,
+    output_dir: str,
+    medaka_model: str = "r941_min_high_g360",
+    batch_size: int = 10,
+) -> tuple[str, str]:
+    """
+    Generate a polished consensus FASTA from raw ONT reads using Medaka 2.x.
+
+    Workflow:
+        FASTQ ──┬──→ minimap2 → sorted BAM + BAI   (saved to output_dir for IGV)
+                │
+                └──→ medaka_consensus               (Medaka 2.x shell script)
+                          -i FASTQ                  (reads — medaka aligns internally)
+                          -d reference.fasta
+                          -o medaka_output/
+                          -m model
+                     → medaka_output/consensus.fasta  (copied to output_dir)
+
+    Each step is checkpointed: re-running after a crash resumes from the last
+    successful step without starting over.
+
+    Args:
+        fastq_path:     Path to ONT reads (FASTQ or FASTQ.gz).
+        reference_path: Path to reference genome (FASTA).
+        output_dir:     Working/output directory — BAM and consensus.fasta land here.
+        medaka_model:   Medaka model name. Passed to -m; if blank, medaka auto-selects.
+
+    Returns:
+        (consensus_fasta_path, sorted_bam_path)
+    """
+    work_dir = Path(output_dir)
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    sorted_bam      = str(work_dir / "aligned.bam")
+    medaka_out_dir  = work_dir / "medaka_output"
+    consensus_fasta = str(work_dir / "consensus.fasta")
+
+    # ── Step A: minimap2 → sorted BAM (for IGV) ───────────────────────────────
+    sorted_bam = _build_sorted_bam(fastq_path, reference_path, work_dir, "aligned.bam")
+
+    # ── Step B: medaka_consensus ───────────────────────────────────────────────
+    #
+    # Medaka 2.x usage:
+    #   medaka_consensus -i <reads.fastq> -d <reference.fasta> -o <out_dir> [-m model] [-t threads]
+    #
+    # medaka_consensus runs its own internal minimap2 alignment; it does NOT
+    # accept a pre-built BAM.  The BAM we built in Step A is only for IGV.
+    #
+    if _is_done(work_dir, "medaka_consensus") and Path(consensus_fasta).exists():
+        logger.info("Checkpoint: consensus.fasta exists — skipping medaka_consensus")
+    else:
+        # Locate medaka_consensus shell script, or fall back to the Python entry point.
+        # pip install medaka always installs `medaka` (Python); the shell script
+        # `medaka_consensus` may or may not be on PATH depending on install method.
+        medaka_bin = shutil.which("medaka_consensus")
+        if medaka_bin is None:
+            medaka_py = shutil.which("medaka")
+            if medaka_py is None:
+                raise RuntimeError(
+                    "Neither 'medaka_consensus' nor 'medaka' found in PATH. "
+                    "Run: pip install medaka"
+                )
+            # Use the Python entry point: medaka consensus (subcommand)
+            use_python_entrypoint = True
+            logger.info("medaka_consensus not found; using 'medaka consensus' Python entry point")
+        else:
+            use_python_entrypoint = False
+
+        # Remove any partial medaka output directory from a previous failed run
+        if medaka_out_dir.exists():
+            shutil.rmtree(medaka_out_dir)
+        _clear_done(work_dir, "medaka_consensus")
+
+        if use_python_entrypoint:
+            # medaka consensus subcommand takes a BAM (not reads directly).
+            # It requires the BAM from Step A.
+            medaka_py = shutil.which("medaka")
+            hdf_file = str(work_dir / "consensus.hdf")
+            cmd_inference = [medaka_py, "inference", sorted_bam, hdf_file,
+                             "--threads", "2", "--quiet"]
+            if medaka_model and medaka_model.strip():
+                cmd_inference += ["--model", medaka_model]
+            _run(cmd_inference, "medaka-inference")
+
+            cmd_stitch = [medaka_py, "stitch", hdf_file, reference_path, consensus_fasta]
+            _run(cmd_stitch, "medaka-stitch")
+        else:
+            # Shell script: feeds reads + reference directly (Medaka 2.x recommended)
+            cmd = [
+                medaka_bin,
+                "-i", fastq_path,
+                "-d", reference_path,
+                "-o", str(medaka_out_dir),
+                "-t", "2",
+                "-b", str(batch_size),  # lower = less RAM; tune down if OOM (default 100 is too large for CPU)
+            ]
+            if medaka_model and medaka_model.strip():
+                cmd += ["-m", medaka_model]
+
+            # Run medaka_consensus via the shell so its internal subcommands
+            # and full output (stdout + stderr interleaved) are visible in logs.
+            _run_shell(cmd, "medaka_consensus", work_dir)
+
+            candidate = medaka_out_dir / "consensus.fasta"
+            if not candidate.exists():
+                contents = list(medaka_out_dir.iterdir()) if medaka_out_dir.exists() else []
+                raise RuntimeError(
+                    f"medaka_consensus finished but consensus.fasta not found in "
+                    f"{medaka_out_dir}. Directory contents: {[p.name for p in contents]}"
+                )
+            shutil.copy2(str(candidate), consensus_fasta)
+
+        if not Path(consensus_fasta).exists():
+            raise RuntimeError(f"Medaka completed but consensus.fasta not found at {consensus_fasta}")
+
+        _mark_done(work_dir, "medaka_consensus")
+
+    return (consensus_fasta, sorted_bam)
+
+
+# ─── call_variants_medaka ─────────────────────────────────────────────────────
+
 def call_variants_medaka(
     fastq_path: str,
     reference_path: str,
@@ -57,89 +313,66 @@ def call_variants_medaka(
     isolate_name: str,
     medaka_model: str = "r941_min_high_g360",
 ) -> IsolateResult:
-    """Align a FASTQ to the reference with minimap2 and call variants with medaka.
+    """
+    Align FASTQ to reference and call variants with medaka.
 
-    Returns an IsolateResult with the BAM file path and called variants.
-    Raises RuntimeError if required tools are missing or a subprocess fails.
+    Pipeline (checkpointed):
+        FASTQ → minimap2 → sorted BAM + BAI
+              → medaka_haploid_variant -i FASTQ -r reference -o medaka_dir -m model
+
+    Returns an IsolateResult with the BAM path and called variants.
     """
     work_dir = Path(output_dir)
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    sam_file = str(work_dir / "aligned.sam")
-    unsorted_bam = str(work_dir / "aligned_unsorted.bam")
-    sorted_bam = str(work_dir / f"{isolate_name}.bam")
-    bai_file = sorted_bam + ".bai"
+    medaka_dir = str(work_dir / "medaka_variants")
+    vcf_cache  = str(work_dir / "medaka_variants_cache.json")
 
-    # 1. Align with minimap2
-    minimap2 = _which_required("minimap2")
-    logger.info("Aligning %s with minimap2", isolate_name)
-    result = subprocess.run(
-        [minimap2, "-ax", "map-ont", reference_path, fastq_path, "-o", sam_file],
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"minimap2 failed for {isolate_name}: {result.stderr.decode()}")
+    # ── Step A: alignment ─────────────────────────────────────────────────────
+    sorted_bam = _build_sorted_bam(fastq_path, reference_path, work_dir, f"{isolate_name}.bam")
 
-    # 2. Sort and index BAM with samtools
-    samtools = _which_required("samtools")
-    logger.info("Converting SAM to sorted BAM for %s", isolate_name)
-    result = subprocess.run(
-        [samtools, "view", "-bS", sam_file, "-o", unsorted_bam],
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"samtools view failed for {isolate_name}: {result.stderr.decode()}")
-
-    result = subprocess.run(
-        [samtools, "sort", unsorted_bam, "-o", sorted_bam],
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"samtools sort failed for {isolate_name}: {result.stderr.decode()}")
-
-    result = subprocess.run(
-        [samtools, "index", sorted_bam],
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"samtools index failed for {isolate_name}: {result.stderr.decode()}")
-
-    # Clean up intermediate files
-    try:
-        os.unlink(sam_file)
-        os.unlink(unsorted_bam)
-    except OSError:
-        pass
-
-    # 3. Call variants with medaka (optional — degrade gracefully if not installed)
+    # ── Step B: medaka variant calling ────────────────────────────────────────
     variants: list[VariantRecord] = []
-    medaka_haploid_variant = shutil.which("medaka_haploid_variant")
-    if medaka_haploid_variant:
-        medaka_dir = str(work_dir / "medaka")
-        logger.info("Running medaka variant calling for %s", isolate_name)
-        result = subprocess.run(
-            [
-                medaka_haploid_variant,
+
+    if _is_done(work_dir, "medaka_variants") and Path(vcf_cache).exists():
+        logger.info("Checkpoint: medaka variants already called — loading cache")
+        with open(vcf_cache) as fh:
+            variants = [VariantRecord(**v) for v in json.load(fh)]
+    else:
+        medaka_haploid = shutil.which("medaka_haploid_variant")
+        if medaka_haploid:
+            if Path(medaka_dir).exists():
+                shutil.rmtree(medaka_dir)
+            _clear_done(work_dir, "medaka_variants")
+
+            cmd = [
+                medaka_haploid,
                 "-i", fastq_path,
                 "-r", reference_path,
                 "-o", medaka_dir,
-                "-m", medaka_model,
                 "-t", "2",
-            ],
-            capture_output=True,
-        )
-        if result.returncode != 0:
-            logger.warning("medaka failed for %s: %s", isolate_name, result.stderr.decode())
+            ]
+            if medaka_model and medaka_model.strip():
+                cmd += ["-m", medaka_model]
+
+            try:
+                _run(cmd, "medaka_haploid_variant")
+                for candidate in (
+                    os.path.join(medaka_dir, "medaka.annotated.vcf"),
+                    os.path.join(medaka_dir, "medaka.vcf"),
+                ):
+                    if Path(candidate).exists():
+                        variants = _parse_vcf(candidate)
+                        break
+            except RuntimeError as exc:
+                logger.warning("medaka_haploid_variant failed — continuing without variants: %s", exc)
+
+            # Cache so resume doesn't re-run medaka
+            with open(vcf_cache, "w") as fh:
+                json.dump([v.model_dump() for v in variants], fh)
+            _mark_done(work_dir, "medaka_variants")
         else:
-            for candidate in (
-                os.path.join(medaka_dir, "medaka.annotated.vcf"),
-                os.path.join(medaka_dir, "medaka.vcf"),
-            ):
-                if os.path.exists(candidate):
-                    variants = _parse_vcf(candidate)
-                    break
-    else:
-        logger.warning("medaka_haploid_variant not found — skipping variant calling for %s", isolate_name)
+            logger.warning("medaka_haploid_variant not found — skipping variant calling for %s", isolate_name)
 
     return IsolateResult(
         name=isolate_name,
@@ -148,84 +381,7 @@ def call_variants_medaka(
     )
 
 
-def assemble_consensus_medaka(
-    fastq_path: str,
-    reference_path: str,
-    output_dir: str,
-    medaka_model: str = "r941_min_high_g360",
-) -> tuple[str, str]:
-    """Generate consensus FASTA from ONT reads using medaka consensus workflow.
-
-    Pipeline:
-    1. minimap2: Align FASTQ to reference → SAM
-    2. samtools: Convert SAM → BAM, sort, index
-    3. medaka consensus: Generate consensus HDF from BAM
-    4. medaka stitch: Combine HDF + reference → consensus FASTA
-
-    Args:
-        fastq_path: Path to ONT reads (FASTQ or FASTQ.gz)
-        reference_path: Path to reference genome (FASTA)
-        output_dir: Working directory for intermediate files
-        medaka_model: Medaka basecalling model (default: r941_min_high_g360)
-
-    Returns:
-        (consensus_fasta_path, sorted_bam_path) tuple
-
-    Raises:
-        RuntimeError: If required tools are missing or subprocess fails
-    """
-    work_dir = Path(output_dir)
-    work_dir.mkdir(parents=True, exist_ok=True)
-
-    sam_file = str(work_dir / "aligned.sam")
-    unsorted_bam = str(work_dir / "aligned_unsorted.bam")
-    sorted_bam = str(work_dir / "aligned.bam")
-    consensus_hdf = str(work_dir / "consensus.hdf")
-    consensus_fasta = str(work_dir / "consensus.fasta")
-
-    # 1. Align with minimap2
-    minimap2 = _which_required("minimap2")
-    logger.info("Aligning reads with minimap2")
-    result = subprocess.run(
-        [minimap2, "-ax", "map-ont", reference_path, fastq_path, "-o", sam_file],
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"minimap2 failed: {result.stderr.decode()}")
-
-    # 2. Convert to sorted BAM
-    samtools = _which_required("samtools")
-    logger.info("Converting to sorted BAM")
-    subprocess.run([samtools, "view", "-bS", sam_file, "-o", unsorted_bam], check=True, capture_output=True)
-    subprocess.run([samtools, "sort", unsorted_bam, "-o", sorted_bam], check=True, capture_output=True)
-    subprocess.run([samtools, "index", sorted_bam], check=True, capture_output=True)
-
-    # Clean up SAM and unsorted BAM
-    os.unlink(sam_file)
-    os.unlink(unsorted_bam)
-
-    # 3. Medaka consensus
-    medaka_consensus_cmd = _which_required("medaka_consensus")
-    logger.info("Running medaka consensus")
-    result = subprocess.run(
-        [medaka_consensus_cmd, sorted_bam, consensus_hdf, "-m", medaka_model, "-t", "2"],
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"medaka_consensus failed: {result.stderr.decode()}")
-
-    # 4. Medaka stitch
-    medaka_stitch = _which_required("medaka_stitch")
-    logger.info("Stitching consensus FASTA")
-    result = subprocess.run(
-        [medaka_stitch, consensus_hdf, reference_path, consensus_fasta],
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"medaka_stitch failed: {result.stderr.decode()}")
-
-    return (consensus_fasta, sorted_bam)
-
+# ─── annotation helpers ───────────────────────────────────────────────────────
 
 def annotate_variants(
     variants: list[VariantRecord],
@@ -234,31 +390,23 @@ def annotate_variants(
     """Enrich each variant with the name of the feature it falls within, if any."""
     annotated: list[VariantRecord] = []
     for variant in variants:
-        in_feature: str | None = None
-        for hit in feature_hits:
-            if hit.start <= variant.position <= hit.end:
-                in_feature = hit.name
-                break
+        in_feature = next(
+            (hit.name for hit in feature_hits if hit.start <= variant.position <= hit.end),
+            None,
+        )
         annotated.append(variant.model_copy(update={"in_feature": in_feature}))
     return annotated
 
 
 def summarize_across_isolates(isolates: list[IsolateResult]) -> dict:
-    """Build a cross-isolate summary: which positions have variants and in how many isolates."""
+    """Build a cross-isolate summary: mutation hotspots across isolates."""
     position_counts: dict[int, list[str]] = {}
     for iso in isolates:
         for variant in iso.variants:
             position_counts.setdefault(variant.position, []).append(iso.name)
 
     hotspots = sorted(
-        [
-            {
-                "position": pos,
-                "isolates": names,
-                "count": len(names),
-            }
-            for pos, names in position_counts.items()
-        ],
+        [{"position": pos, "isolates": names, "count": len(names)} for pos, names in position_counts.items()],
         key=lambda x: -x["count"],
     )
 

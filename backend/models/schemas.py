@@ -110,7 +110,9 @@ class VerifyResult(BaseModel):
     mode: Literal["compare", "assemble"]
     quality_metrics: QualityMetrics
     mutations: list[Mutation]
-    alignment: str
+    alignment: str                        # kept for backwards compat; short preview
+    aligned_ref: str = ""                 # full aligned reference string
+    aligned_query: str = ""               # full aligned query string
     consensus_fasta_path: str | None = None
     bam_file: str | None = None
     reference_name: str

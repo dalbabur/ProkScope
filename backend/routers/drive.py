@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from backend.models.schemas import DriveFile
@@ -45,3 +46,17 @@ def folders(session_token: str, parent_id: str | None = None) -> list[DriveFile]
         return drive_client.list_folders(session_token=session_token, parent_id=parent_id)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/download")
+def download(session_token: str, file_id: str) -> Response:
+    """Download a single Drive file and stream it back to the browser.
+
+    Used by the mixed-source path in VerifyAssembleTab when one file is local
+    and the other comes from Drive.
+    """
+    try:
+        content = drive_client.download_file(session_token=session_token, file_id=file_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(content=content, media_type="application/octet-stream")

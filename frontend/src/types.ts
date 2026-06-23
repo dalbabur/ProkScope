@@ -125,6 +125,7 @@ export type VerifyResult = {
   aligned_query: string;
   consensus_fasta_path?: string | null;
   bam_file?: string | null;
+  reference_fasta_file?: string | null;
   reference_name: string;
   assembly_or_reads_name: string;
 };

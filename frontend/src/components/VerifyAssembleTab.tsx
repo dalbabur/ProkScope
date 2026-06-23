@@ -17,6 +17,7 @@ import {
   assembleConsensusDrive,
   pollStatus,
   getResult,
+  getFileUrl,
   suggestOutputDir,
 } from '../hooks/useVerify';
 import type { DriveFile, JobStatus, VerifyResult } from '../types';
@@ -319,6 +320,15 @@ export function VerifyAssembleTab() {
   const sectionStyle: React.CSSProperties = { padding: 12, background: '#161b22', border: '1px solid #30363d', borderRadius: 6 };
   const inputStyle: React.CSSProperties = { fontSize: 12, padding: '4px 8px', background: '#0d1117', border: '1px solid #30363d', color: '#c9d1d9', borderRadius: 6, width: '100%' };
   const labelStyle: React.CSSProperties = { display: 'block', fontSize: 12, marginBottom: 4, color: '#8b949e' };
+  console.log({
+    jobId: result?.job_id,
+    reference: result?.reference_fasta_file,
+    fastaUrl:
+       result?.reference_fasta_file && result?.job_id
+          ? getFileUrl(result.job_id, result.reference_fasta_file)
+          : undefined,
+  });
+  console.log("result", result);
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', height: '100%', gap: 0 }}>
@@ -483,8 +493,26 @@ export function VerifyAssembleTab() {
           <GenomeViewer spec={spec} onRangeSelect={setSelectedRange} />
           <AnnotationTrack annotations={annotations} hiddenFeatureTypes={hiddenFeatureTypes} onToggle={toggleFeatureType} />
         </section>
-        <section>
-          <IgvViewer height={300} />
+        <section style={sectionStyle}>
+          <h3 style={{ margin: '0 0 8px', fontSize: 13 }}>Read Alignment (IGV)</h3>
+          <div style={{ backgroundColor: "white" }}>
+          <IgvViewer
+            height={400}
+            fastaUrl={result?.reference_fasta_file && result?.job_id
+              ? getFileUrl(result.job_id, result.reference_fasta_file)
+              : undefined}
+            referenceName={result?.reference_name}
+            tracks={result?.bam_file && result?.job_id ? [
+              {
+                type: 'alignment',
+                format: 'bam',
+                url: getFileUrl(result.job_id, result.bam_file),
+                indexURL: getFileUrl(result.job_id, result.bam_file + '.bai'),
+                name: 'Reads vs Reference',
+              }
+            ] : []}
+          />
+          </div>
         </section>
         <section style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>

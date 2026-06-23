@@ -234,6 +234,24 @@ def _run_assemble_consensus_job(
         final_bam       = os.path.realpath(bam_path)
         final_bai       = final_bam + ".bai"
 
+        # Copy the reference FASTA into output_dir and index it for IGV.
+        # IGV needs the FASTA + .fai at a URL it can fetch from the backend.
+        ref_fasta_in_output = os.path.join(output_dir, "reference.fasta")
+        ref_fasta_file: str | None = None
+        try:
+            if not os.path.exists(ref_fasta_in_output):
+                shutil.copy2(reference_path, ref_fasta_in_output)
+            fai_path = ref_fasta_in_output + ".fai"
+            if not os.path.exists(fai_path):
+                samtools = shutil.which("samtools")
+                if samtools:
+                    import subprocess as _sp
+                    _sp.run([samtools, "faidx", ref_fasta_in_output], check=True, capture_output=True)
+            if os.path.exists(ref_fasta_in_output):
+                ref_fasta_file = os.path.basename(ref_fasta_in_output)
+        except Exception as _exc:
+            logger.warning("Could not stage reference FASTA for IGV: %s", _exc)
+
         # Cap alignment strings to avoid serialising megabytes into JSON
         aligned_ref   = result.aligned_ref[:_ALIGNMENT_PREVIEW_CAP]
         aligned_query = result.aligned_query[:_ALIGNMENT_PREVIEW_CAP]
@@ -250,6 +268,7 @@ def _run_assemble_consensus_job(
             aligned_query=aligned_query,
             consensus_fasta_path=final_consensus,
             bam_file=os.path.basename(final_bam),
+            reference_fasta_file=ref_fasta_file,
             reference_name=ref_records[0].id,
             assembly_or_reads_name=os.path.basename(fastq_path),
         )
@@ -444,40 +463,31 @@ async def get_result(job_id: str) -> VerifyResult:
 async def serve_file(request: Request, job_id: str, filename: str) -> FileResponse:
     """Serve files for IGV visualization (FASTA, FAI, BAM, BAI).
 
-    Supports HTTP Range requests for streaming large BAM files.
+    Supports HTTP Range requests — required by IGV to stream BAM files.
     """
-    # Validate job exists
     if job_id not in _job_metadata:
         raise HTTPException(404, "Job not found")
 
-    # Validate filename (no path traversal)
     if "/" in filename or "\\" in filename or ".." in filename:
         raise HTTPException(400, "Invalid filename")
 
-    # Get output directory from job metadata
     output_dir = _job_metadata[job_id]["output_dir"]
     file_path = os.path.join(output_dir, filename)
 
-    # Validate file exists
     if not os.path.exists(file_path):
         raise HTTPException(404, f"File not found: {filename}")
 
-    # Determine media type
     media_type = "application/octet-stream"
-    if filename.endswith(".fasta") or filename.endswith(".fa"):
-        media_type = "text/plain"
-    elif filename.endswith(".bam"):
-        media_type = "application/octet-stream"
-    elif filename.endswith(".bai"):
-        media_type = "application/octet-stream"
-    elif filename.endswith(".fai"):
+    if filename.endswith((".fasta", ".fa", ".fna", ".fai")):
         media_type = "text/plain"
 
-    # Return file with Range support for BAM files
+    # FileResponse handles Range headers automatically.
+    # Accept-Ranges header tells IGV that range requests are supported.
     return FileResponse(
         file_path,
         media_type=media_type,
         filename=filename,
+        headers={"Accept-Ranges": "bytes"},
     )
 
 

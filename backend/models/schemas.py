@@ -115,5 +115,6 @@ class VerifyResult(BaseModel):
     aligned_query: str = ""               # full aligned query string
     consensus_fasta_path: str | None = None
     bam_file: str | None = None
+    reference_fasta_file: str | None = None     
     reference_name: str
     assembly_or_reads_name: str
